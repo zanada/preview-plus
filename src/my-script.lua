@@ -1,3 +1,12 @@
+
+local function getActiveSprite()
+  local sprite = app.sprite
+  if not sprite then
+    return app.alert("No active sprite found.")
+  end
+  return sprite
+end
+
 function init(plugin)
   print("Aseprite is initializing my plugin")
 
@@ -14,7 +23,19 @@ function init(plugin)
     group="cel_popup_properties",
     onclick=function()
       plugin.preferences.count = plugin.preferences.count+1
-	    local dlg = Dialog("my new dialog box 2"):entry{ id="user_value", label="User Value:", text="Default User".. plugin.preferences.count }
+	    local dlg = Dialog("my new dialog box 2")
+        :label{ id="open_count", label="Open Count:", text=tostring(plugin.preferences.count) }
+        :canvas{
+          id="myCanvas",
+          width=200,
+          height=200,
+          onpaint=function (ev)
+            local gc = ev.context
+            if app.sprite then
+              gc:drawImage(app.image, 0, 0) 
+            end
+          end
+        }
 	    dlg:show()
     end
   }
