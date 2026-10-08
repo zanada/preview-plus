@@ -35,7 +35,7 @@ end
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
 ---@field sprite Sprite | nil reference to sprite it displays
----@field spriteListener integer | nil
+---@field listeners integer[] list of sprite listener ids
 ---@field visible boolean true if currently visible
 ---@field open boolean true if toggled on, whether or not currently visible
 ---@field spritePos Point Position of the origin of sprite within the preview window
@@ -44,7 +44,7 @@ local Preview = {
   sprite=nil,
   visible=false,
   open=false,
-  siteListener=nil,
+  listeners={},
   spritePos=Point(0,0)
 }
 
@@ -151,9 +151,10 @@ function Preview:new()
   o.visible = false
   o.open = false
   o:createDialog()
-  o.spriteListener = o.sprite.events:on('change', function(ev) 
-    o.dialog:repaint() 
-    end)
+  o.listeners = {}
+  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
 end
 
@@ -187,7 +188,9 @@ end
 
 --- @return nil
 function Preview:disconnect()
-  self.sprite.events:off(self.spriteListener)
+  for _, listener in pairs(self.listeners) do
+    self.sprite.events:off(listener)
+  end
 end
 
 
