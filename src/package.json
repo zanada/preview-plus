@@ -1,7 +1,7 @@
 {
   "name": "preview-plus",
   "displayName": "Preview Plus",
-  "description": "My Extension does something",
+  "description": "A preview window that shows selected areas",
   "version": "0.1",
   "author": { "name": "Saaz Ramsubhag",
               "email": "ramsubhag.saaz@gmail.com",
@@ -12,7 +12,7 @@
   "categories": [ "Scripts" ],
   "contributes": {
     "scripts": [
-        { "path": "./my-script.lua" }
+        { "path": "./preview-plus.lua" }
     ]
   }
 }
