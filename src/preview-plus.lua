@@ -94,17 +94,39 @@ function Preview:createDialog()
       --- @type GraphicsContext
       local gc = ev.context
       if self.sprite then
-        -- rectangle available to draw to (canvas excluding border)
-        local body = Rectangle(3, 3, gc.width - 2*3, gc.height - 2*3)
+        -- compose the sprite over a checkerboard patter for transparent values
 
+        --- @type Image
+        local spriteImage = Image(self.sprite) --[[@as Image]]
+        local fullImage = Image(spriteImage.width, spriteImage.height)
+        local squareSize = 16
+        local cxt = fullImage.context
+        -- draw checkerboard
+        for i = 0, (fullImage.width // 16) do
+          for j = 0, (fullImage.width // 16) do
+            if (i + j) % 2 == 0 then
+              cxt.color = Color{ gray=128, alpha=255 }
+            else
+              cxt.color = Color{ gray=192, alpha=255 }
+            end
+            cxt:fillRect(i*squareSize, j*squareSize, squareSize, squareSize)
+          end
+        end
+        -- compose
+        fullImage:drawImage(spriteImage)
+
+        -- fill background
         gc.color = app.theme.color.editor_face
         gc:fillRect(0,0,gc.width,gc.height)
-        
+
+        -- body of canvas that is being drawn to (canvas excluding border)
+        local body = Rectangle(3, 3, gc.width - 2*3, gc.height - 2*3)
+
         -- get section of image that fits in canvas according to its position
         local imagePoint0 = clampPoint(self:CanvasToSpriteCoord(Point(body.x,body.y)), self.sprite.bounds)
         local imagePoint1 = clampPoint(self:CanvasToSpriteCoord(Point(body.width-1, body.height-1)), self.sprite.bounds)
 
-        local rendered = Image(self.sprite,
+        local rendered = Image(fullImage,
           Rectangle(
             imagePoint0.x, imagePoint0.y,
             imagePoint1.x-imagePoint0.x + 1,
@@ -157,6 +179,8 @@ function Preview:new()
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
 end
+
+-- 128, 192
 
 --- @return nil
 function Preview:show()
