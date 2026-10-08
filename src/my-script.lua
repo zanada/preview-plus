@@ -17,8 +17,7 @@ local function PreviewDialog(sprite, onclose_)
     label="",
     text="but",
     selected=false,
-    focus=false,
-    onclick=function () return end
+    focus=false
   }
   :canvas{
     id="myCanvas",
@@ -36,16 +35,16 @@ local function PreviewDialog(sprite, onclose_)
 end
 
 ---@class Preview
----@field dialog Dialog | nil
----@field sprite Sprite | nil
+---@field dialog Dialog | nil dialog object
+---@field sprite Sprite | nil reference to sprite it displays
 ---@field spriteListener integer | nil
----@field siteListener integer | nil
----@field visible boolean
+---@field visible boolean true if currently visible
+---@field open boolean true if toggled on, whether or not currently visible
 local Preview = {
   dialog=nil,
   sprite=nil,
   visible=false,
-  spriteListener=nil,
+  open=false,
   siteListener=nil
 }
 
@@ -57,9 +56,16 @@ function Preview:new()
 
   o.sprite = app.sprite
   o.visible = false
-  o.dialog = PreviewDialog(o.sprite, function() o.visible = false end)
-  o.spriteListener = o.sprite.events:on('change', function(ev) o.dialog:repaint() end)
-  o.siteListener = app.events:on('sitechange', function() o:updateVisibility() end)
+  o.open = false
+  o.dialog = PreviewDialog(o.sprite, 
+    function() 
+      o.visible = false
+      o.open = false
+    end)
+  o.spriteListener = o.sprite.events:on('change', function(ev) 
+    app.alert("sprite changed")
+    o.dialog:repaint() 
+    end)
   return o
 end
 
@@ -67,23 +73,27 @@ end
 function Preview:show()
   self.dialog:show{wait=false}
   self.visible = true
+  self.open = true
 end
 
 --- @return nil
 function Preview:updateVisibility()
-  if app.sprite == self.sprite and not self.visible then
+  if app.sprite == self.sprite and not self.visible and self.open then
     self:show()
     return
   end
+  -- still open but hide when other sprite
   if app.sprite ~= self.sprite and self.visible then
     self.dialog:close()
+    -- open is set to false by default but it is actuall still open
+    -- flip open back to true
+    self.open = true
   end
 end
 
 --- @return nil
 function Preview:disconnect()
   self.sprite.events:off(self.spriteListener)
-  app.events:off(self.siteListener)
 end
 
 
@@ -137,6 +147,17 @@ local function ToggleCurrentPreview()
   TogglePreview(sprite)
 end
 
+local siteListener
+---@return nil
+local function appSiteChanged()
+  app.alert("site changed")
+  for _, preview in pairs(previews) do
+    if preview then
+      preview:updateVisibility()
+    end
+  end
+end
+
 
 function init(plugin)
   if not app.isUIAvailable then return end
@@ -144,6 +165,8 @@ function init(plugin)
   if plugin.preferences.count == nil then
     plugin.preferences.count = 0
   end
+
+  siteListener = app.events:on('sitechange', appSiteChanged)
   --
   plugin:newCommand{
     id="preview-plus",
@@ -161,6 +184,7 @@ function init(plugin)
 end
 
 function exit(plugin)
+  app.events:off(siteListener)
   for _, preview in previews do
     preview:disconnect()
   end
