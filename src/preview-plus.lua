@@ -20,6 +20,14 @@ local function subPoints(a, b)
     return Point(a.x - b.x, a.y - b.y)
 end
 
+---Multiply point vector by a scalar
+---@param vect Point
+---@param scalar number
+---@return Point
+local function mulVect(vect, scalar)
+    return Point(vect.x*scalar, vect.y*scalar)
+end
+
 ---Return the point restricted to the bounds of the rectangle (inclusive)
 ---@param point Point
 ---@param rect Rectangle
@@ -39,6 +47,7 @@ end
 ---@field visible boolean true if currently visible
 ---@field open boolean true if toggled on, whether or not currently visible
 ---@field spritePos Point Position of the origin of sprite within the preview window
+---@field zoom number Zoom level
 ---@field mouseDragging boolean True if being panned by mouse
 ---@field dragPos Point Last position of mouse while dragging
 local Preview = {
@@ -48,6 +57,7 @@ local Preview = {
   open=false,
   listeners={},
   spritePos=Point(0,0),
+  zoom=1.0,
   mouseDragging=false,
   dragPos=Point(0,0)
 }
@@ -58,14 +68,15 @@ local Preview = {
 --- @param point Point
 --- @return Point
 function Preview:spriteToCanvasCoord(point)
-  return addPoints(point, self.spritePos)
+  return addPoints(mulVect(point, self.zoom), self.spritePos)
 end
 
---- Returns the size of the sprite in canvas space
+--- Converts the size from sprite space to canvas space according to the zoom level
 --- @protected
+--- @param size Point a point representing the size of a rectangle
 --- @return Point
-function Preview:getSpriteCanvasSize()
-  return Point(self.sprite.width, self.sprite.height)
+function Preview:spriteToCanvasSize(size)
+  return Point(size.x * self.zoom, size.y * self.zoom)
 end
 
 --- Returns the size of the sprite 
@@ -74,7 +85,7 @@ end
 --- @param point Point
 --- @return Point
 function Preview:CanvasToSpriteCoord(point)
-  return subPoints(point, self.spritePos)
+  return mulVect(subPoints(point, self.spritePos), 1/self.zoom)
 end
 
 --- @protected
@@ -105,24 +116,10 @@ function Preview:createDialog()
       --- @type GraphicsContext
       local gc = ev.context
       if self.sprite then
-        -- body of canvas that is being drawn to (canvas excluding border)
-        local body = Rectangle(3, 3, gc.width - 2*3, gc.height - 2*3)
-
-        -- bound sprite position such that it doesn't leave the screen
-        -- with a max bound of half the width/height
-        -- (a bit weird to put it here but I need the graphics context)
-        local spriteSize = self:getSpriteCanvasSize()
-        local h_bound = math.min(body.width/2, spriteSize.x)
-        local v_bound = math.min(body.height/2, spriteSize.y)
-
-        self.spritePos.x = math.min(self.spritePos.x, body.x+body.width-h_bound)
-        self.spritePos.x = math.max(self.spritePos.x, body.x+h_bound-spriteSize.x)
-        self.spritePos.y = math.min(self.spritePos.y, body.y+body.height-v_bound)
-        self.spritePos.y = math.max(self.spritePos.y, body.y+v_bound-spriteSize.y)
-
-        -- compose the sprite over a checkerboard patter for transparent values
-        --- @type Image
+        -- TODO: Option ot Isolate active layer
         local spriteImage = Image(self.sprite) --[[@as Image]]
+
+        -- overlay the full sprite over a checkerboard pattern for transparent values
         local fullImage = Image(spriteImage.width, spriteImage.height)
         local squareSize = 16
         local cxt = fullImage.context
@@ -140,26 +137,57 @@ function Preview:createDialog()
         -- compose
         fullImage:drawImage(spriteImage)
 
+        -- TODO: Choose area to crop from
+        local imagePos = self.spritePos
+        local offset = subPoints(self.spritePos, imagePos)
+        local croppedImage = fullImage
+
+        -- body of canvas that is being drawn to (canvas excluding border)
+        local b_width = 3
+        local body = Rectangle(b_width, b_width, gc.width - 2*b_width, gc.height - 2*b_width)
+
+        -- bound cropped position such that it doesn't leave the screen
+        -- with a max bound of half the width/height
+        -- (a bit weird to put it here but I need the graphics context)
+        local cropSize = Point(croppedImage.width * self.zoom, croppedImage.height*self.zoom)
+        local h_bound = math.min(body.width/2, cropSize.x)
+        local v_bound = math.min(body.height/2, cropSize.y)
+
+        imagePos.x = math.min(imagePos.x, body.x+body.width-h_bound)
+        imagePos.x = math.max(imagePos.x, body.x+h_bound-cropSize.x)
+        imagePos.y = math.min(imagePos.y, body.y+body.height-v_bound)
+        imagePos.y = math.max(imagePos.y, body.y+v_bound-cropSize.y)
+
+        -- update sprite pos to match
+        self.spritePos = addPoints(imagePos, offset)
+
         -- fill background
         gc.color = app.theme.color.editor_face
         gc:fillRect(0,0,gc.width,gc.height)
 
         -- get section of image that fits in canvas according to its position
         local imagePoint0 = clampPoint(self:CanvasToSpriteCoord(Point(body.x,body.y)), fullImage.bounds)
-        local imagePoint1 = clampPoint(self:CanvasToSpriteCoord(Point(body.x+body.width-1, body.y+body.height-1)), fullImage.bounds)
+        local imagePoint1 = addPoints(clampPoint(self:CanvasToSpriteCoord(Point(body.x+body.width-1, body.y+body.height-1)), fullImage.bounds), Point(1,1))
 
         local rendered = Image(fullImage,
           Rectangle(
-            imagePoint0.x, imagePoint0.y,
-            imagePoint1.x-imagePoint0.x + 1,
-            imagePoint1.y-imagePoint0.y + 1
+            math.floor(imagePoint0.x), math.floor(imagePoint0.y),
+            math.floor(imagePoint1.x-imagePoint0.x + 1),
+            math.floor(imagePoint1.y-imagePoint0.y + 1)
           )
         )
 
         if rendered == nil then return end
-        -- draw section of image to canvas
-        local renderedPos = self:spriteToCanvasCoord(imagePoint0)
-        gc:drawImage(rendered, renderedPos.x, renderedPos.y)
+        -- draw section of image to canvas according to scale and 
+        local renderedPoint0 = self:spriteToCanvasCoord(imagePoint0)
+        local renderedPoint1 = self:spriteToCanvasCoord(imagePoint1)
+        gc:drawImage(rendered,
+          rendered.bounds,
+          Rectangle(renderedPoint0.x, renderedPoint0.y,
+            renderedPoint1.x-renderedPoint0.x+1,
+            renderedPoint1.y-renderedPoint0.y+1
+          )
+        )
         
 
         local spriteCoord = self:spriteToCanvasCoord(Point(0,0))
@@ -167,16 +195,15 @@ function Preview:createDialog()
 
         -- draw border around image
         gc.color = app.theme.color.editor_sprite_border
-        gc:strokeRect(spriteCoord.x-1, spriteCoord.y-1,
-          spriteEndCoord.x-spriteCoord.x+3,
-          spriteEndCoord.y-spriteCoord.y+3
+        gc:strokeRect(imagePos.x-1, imagePos.y-1,
+          cropSize.x+2, cropSize.y+2
         )
 
         -- draw line below border
         gc.color = app.theme.color.editor_sprite_bottom_border
         gc:beginPath()
-        gc:moveTo(spriteCoord.x-1, spriteEndCoord.y+2)
-        gc:lineTo(spriteEndCoord.x+1, spriteEndCoord.y+2)
+        gc:moveTo(imagePos.x-1, imagePos.y+cropSize.y+1)
+        gc:lineTo(imagePos.x+cropSize.x, imagePos.y+cropSize.y+1)
 
         -- draw border around the preview
         gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
@@ -216,6 +243,26 @@ function Preview:createDialog()
 
         self:repaint()
       end
+    end,
+
+    onwheel=function(ev)
+      if ev.deltaY == 0 then return end
+
+      local direction = ev.deltaY > 0 and -1 or 1
+      local zoomLevel
+      if self.zoom >= 1 then zoomLevel = math.floor(self.zoom)
+      else zoomLevel = -math.floor(1/self.zoom) end
+      local z = self.zoom
+      
+      if zoomLevel > 1 then self.zoom = zoomLevel + direction
+      elseif zoomLevel == 1 then
+        if direction > 0 then self.zoom = 2
+        else self.zoom = 1/2 end
+      else self.zoom = 1/(math.abs(zoomLevel) - direction) end
+
+      --print(ev.deltaY, z .. " => " .. self.zoom)
+
+      self:repaint()
     end
   }
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
@@ -229,6 +276,7 @@ function Preview:new()
   self.__index = self
 
   o.spritePos = Point(10,10)
+  o.zoom = 1.0
   o.sprite = app.sprite
   o.visible = false
   o.open = false
