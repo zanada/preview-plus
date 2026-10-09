@@ -26,8 +26,8 @@ end
 ---@return Point
 local function clampPoint(point, rect)
     return Point(
-      math.min(math.max(point.x, rect.x), rect.width),
-      math.min(math.max(point.y, rect.y), rect.height)
+      math.min(math.max(point.x, rect.x), rect.x + rect.width-1),
+      math.min(math.max(point.y, rect.y), rect.y + rect.height-1)
     )
 end
 
@@ -39,13 +39,17 @@ end
 ---@field visible boolean true if currently visible
 ---@field open boolean true if toggled on, whether or not currently visible
 ---@field spritePos Point Position of the origin of sprite within the preview window
+---@field mouseDragging boolean True if being panned by mouse
+---@field dragPos Point Last position of mouse while dragging
 local Preview = {
   dialog=nil,
   sprite=nil,
   visible=false,
   open=false,
   listeners={},
-  spritePos=Point(0,0)
+  spritePos=Point(0,0),
+  mouseDragging=false,
+  dragPos=Point(0,0)
 }
 
 --- Returns a point in sprite space converted to canvas space
@@ -57,7 +61,14 @@ function Preview:spriteToCanvasCoord(point)
   return addPoints(point, self.spritePos)
 end
 
---- Returns a point in canvas space converted to sprite space
+--- Returns the size of the sprite in canvas space
+--- @protected
+--- @return Point
+function Preview:getSpriteCanvasSize()
+  return Point(self.sprite.width, self.sprite.height)
+end
+
+--- Returns the size of the sprite 
 --- Sprite space is defined by it's current position relative to the canvas
 --- @protected
 --- @param point Point
@@ -82,7 +93,7 @@ function Preview:createDialog()
   :button{
     id="center",
     label="",
-    text="but",
+    text=self.mou,
     selected=false,
     focus=false
   }
@@ -94,8 +105,22 @@ function Preview:createDialog()
       --- @type GraphicsContext
       local gc = ev.context
       if self.sprite then
-        -- compose the sprite over a checkerboard patter for transparent values
+        -- body of canvas that is being drawn to (canvas excluding border)
+        local body = Rectangle(3, 3, gc.width - 2*3, gc.height - 2*3)
 
+        -- bound sprite position such that it doesn't leave the screen
+        -- with a max bound of half the width/height
+        -- (a bit weird to put it here but I need the graphics context)
+        local spriteSize = self:getSpriteCanvasSize()
+        local h_bound = math.min(body.width/2, spriteSize.x)
+        local v_bound = math.min(body.height/2, spriteSize.y)
+
+        self.spritePos.x = math.min(self.spritePos.x, body.x+body.width-h_bound)
+        self.spritePos.x = math.max(self.spritePos.x, body.x+h_bound-spriteSize.x)
+        self.spritePos.y = math.min(self.spritePos.y, body.y+body.height-v_bound)
+        self.spritePos.y = math.max(self.spritePos.y, body.y+v_bound-spriteSize.y)
+
+        -- compose the sprite over a checkerboard patter for transparent values
         --- @type Image
         local spriteImage = Image(self.sprite) --[[@as Image]]
         local fullImage = Image(spriteImage.width, spriteImage.height)
@@ -119,12 +144,9 @@ function Preview:createDialog()
         gc.color = app.theme.color.editor_face
         gc:fillRect(0,0,gc.width,gc.height)
 
-        -- body of canvas that is being drawn to (canvas excluding border)
-        local body = Rectangle(3, 3, gc.width - 2*3, gc.height - 2*3)
-
         -- get section of image that fits in canvas according to its position
-        local imagePoint0 = clampPoint(self:CanvasToSpriteCoord(Point(body.x,body.y)), self.sprite.bounds)
-        local imagePoint1 = clampPoint(self:CanvasToSpriteCoord(Point(body.width-1, body.height-1)), self.sprite.bounds)
+        local imagePoint0 = clampPoint(self:CanvasToSpriteCoord(Point(body.x,body.y)), fullImage.bounds)
+        local imagePoint1 = clampPoint(self:CanvasToSpriteCoord(Point(body.x+body.width-1, body.y+body.height-1)), fullImage.bounds)
 
         local rendered = Image(fullImage,
           Rectangle(
@@ -136,8 +158,10 @@ function Preview:createDialog()
 
         if rendered == nil then return end
         -- draw section of image to canvas
-        gc:drawImage(rendered, math.max(0, self.spritePos.x), math.max(0, self.spritePos.y))
+        local renderedPos = self:spriteToCanvasCoord(imagePoint0)
+        gc:drawImage(rendered, renderedPos.x, renderedPos.y)
         
+
         local spriteCoord = self:spriteToCanvasCoord(Point(0,0))
         local spriteEndCoord = self:spriteToCanvasCoord(Point(self.sprite.width-1, self.sprite.height-1))
 
@@ -156,9 +180,45 @@ function Preview:createDialog()
 
         -- draw border around the preview
         gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
+
+        -- debug text
+        -- gc.color = Color{gray=255,alpha=100}
+        -- gc:fillRect{0,gc.height-50,150,50}
+        -- gc.color = Color{r=0,g=0,b=0,a=255}
+        -- gc:fillText("gc size: (" .. tostring(gc.width) .. ", " .. tostring(gc.height) .. ")", 5, gc.height - 40)
+        -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
+        -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
+        -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
+      end
+    end,
+
+    onmousedown=function(ev)
+      --dialog:modify{id="center", text="down"}
+      self.mouseDragging = true
+      self.dragPos = Point(ev.x, ev.y)
+      dialog:modify{ id="myCanvas", mousecursor=MouseCursor.GRABBING }
+    end,
+
+    onmouseup=function(ev)
+      --dialog:modify{id="center", text="up"} -- resets size for some reason
+      self.mouseDragging = false
+      dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
+    end,
+
+    onmousemove=function (ev)
+      if self.mouseDragging then
+        local newDragPos = Point(ev.x, ev.y)
+        self.spritePos = addPoints(
+          self.spritePos, 
+          subPoints(newDragPos, self.dragPos)
+        )
+        self.dragPos = newDragPos
+
+        self:repaint()
       end
     end
   }
+  dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
 end
 
@@ -172,6 +232,7 @@ function Preview:new()
   o.sprite = app.sprite
   o.visible = false
   o.open = false
+  o.mouseDragging = false
   o:createDialog()
   o.listeners = {}
   table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
