@@ -302,10 +302,10 @@ function Preview:createDialog()
         gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
 
         -- debug text
-        gc.color = Color{gray=255,alpha=100}
-        gc:fillRect(0,gc.height-50,150,50)
-        gc.color = Color{r=0,g=0,b=0,a=255}
-        gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
+        -- gc.color = Color{gray=255,alpha=100}
+        -- gc:fillRect(0,gc.height-50,150,50)
+        -- gc.color = Color{r=0,g=0,b=0,a=255}
+        -- gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
         -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
         -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
         -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
