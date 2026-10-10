@@ -202,7 +202,7 @@ end
 --- @return nil
 function Preview:createDialog()
   local dialog = Dialog{
-    title="Preview Plus",
+    title="Preview+",
     notitlebar=false,
     onclose=function()
       self.visible = false
@@ -211,16 +211,22 @@ function Preview:createDialog()
   }
 
   dialog
-  :button{
-    id="center",
-    text="",
+  :check{ id="expand_check",
+    text="Expand",
     selected=false,
     focus=false,
-    visible=true
+    onclick=function()
+      local vis = dialog.data["expand_check"]
+      dialog:modify{id="pin_check", visible=vis}
+      dialog:modify{id="layer_check", visible=vis}
+      dialog:modify{id="zoom_separator", visible=vis}
+      dialog:modify{id="zoom_slider", visible=vis}
+      dialog:modify{id="area_separator", visible=vis}
+      dialog:modify{id="area_combo", visible=vis}
+    end
   }
-  :canvas{
-    id="myCanvas",
-    width=150,
+  :canvas{ id="myCanvas",
+    width=180,
     height=200,
     visible=true,
     onpaint=function (ev)
@@ -355,9 +361,26 @@ function Preview:createDialog()
       end
     end
   }
-  :slider{
-    id="zoom_slider",
-    label="zoom",
+  :check{ id="pin_check",
+    text="Pin Window",
+    selected=false,
+    focus=false,
+    visible=false,
+    onclick=function() end
+  }
+  :check{ id="layer_check",
+    text="Isolate Layer",
+    selected=false,focus=false,
+    visible=false,
+    onclick=function() end
+  }
+  :separator{ id="zoom_separator",
+    text="Zoom Level",
+    visible=false,
+  }
+  :slider{ id="zoom_slider",
+    visible=false,
+    focus=false,
     min=1-defaultZoomLevel,
     max=#zoomScales-defaultZoomLevel,
     value=self.zoomLevel-defaultZoomLevel,
@@ -367,6 +390,15 @@ function Preview:createDialog()
     end,
     onrelease=function () end
   }
+  :separator{ id="area_separator",
+    text="Area",
+    visible=false,
+  }
+  :combobox{ id="area_combo",
+    visible=false,
+    option="Sprite",
+    options={ "Sprite" },
+    onchange=function() end }
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
 end
