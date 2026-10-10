@@ -39,6 +39,12 @@ local function clampPoint(point, rect)
     )
 end
 
+---convert point to integer point by flooring
+---@param point any
+local function floorPoint(point)
+  return   Point(math.floor(point.x), math.floor(point.y))
+end
+
 
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
@@ -149,7 +155,7 @@ function Preview:createDialog()
         -- bound cropped position such that it doesn't leave the screen
         -- with a max bound of half the width/height
         -- (a bit weird to put it here but I need the graphics context)
-        local cropSize = Point(croppedImage.width * self.zoom, croppedImage.height*self.zoom)
+        local cropSize = floorPoint(Point(croppedImage.width * self.zoom, croppedImage.height*self.zoom))
         local h_bound = math.min(body.width/2, cropSize.x)
         local v_bound = math.min(body.height/2, cropSize.y)
 
@@ -161,49 +167,27 @@ function Preview:createDialog()
         -- update sprite pos to match
         self.spritePos = addPoints(imagePos, offset)
 
+        -- integer rectangle of image on canvas
+        local imageRect = Rectangle(math.floor(imagePos.x), math.floor(imagePos.y), cropSize.x, cropSize.y)
+
         -- fill background
         gc.color = app.theme.color.editor_face
         gc:fillRect(0,0,gc.width,gc.height)
 
-        -- get section of image that fits in canvas according to its position
-        local imagePoint0 = clampPoint(self:CanvasToSpriteCoord(Point(body.x,body.y)), fullImage.bounds)
-        local imagePoint1 = addPoints(clampPoint(self:CanvasToSpriteCoord(Point(body.x+body.width-1, body.y+body.height-1)), fullImage.bounds), Point(1,1))
-
-        local rendered = Image(fullImage,
-          Rectangle(
-            math.floor(imagePoint0.x), math.floor(imagePoint0.y),
-            math.floor(imagePoint1.x-imagePoint0.x + 1),
-            math.floor(imagePoint1.y-imagePoint0.y + 1)
-          )
-        )
-
-        if rendered == nil then return end
-        -- draw section of image to canvas according to scale and 
-        local renderedPoint0 = self:spriteToCanvasCoord(imagePoint0)
-        local renderedPoint1 = self:spriteToCanvasCoord(imagePoint1)
-        gc:drawImage(rendered,
-          rendered.bounds,
-          Rectangle(renderedPoint0.x, renderedPoint0.y,
-            renderedPoint1.x-renderedPoint0.x+1,
-            renderedPoint1.y-renderedPoint0.y+1
-          )
-        )
         
-
-        local spriteCoord = self:spriteToCanvasCoord(Point(0,0))
-        local spriteEndCoord = self:spriteToCanvasCoord(Point(self.sprite.width-1, self.sprite.height-1))
-
+        -- draw image onto background
+        gc:drawImage(croppedImage, croppedImage.bounds, imageRect)
+        
         -- draw border around image
         gc.color = app.theme.color.editor_sprite_border
-        gc:strokeRect(imagePos.x-1, imagePos.y-1,
-          cropSize.x+2, cropSize.y+2
-        )
+        gc:strokeRect(imageRect.x-1, imageRect.y-1, imageRect.width+2, imageRect.height+2)
 
         -- draw line below border
         gc.color = app.theme.color.editor_sprite_bottom_border
         gc:beginPath()
-        gc:moveTo(imagePos.x-1, imagePos.y+cropSize.y+1)
-        gc:lineTo(imagePos.x+cropSize.x, imagePos.y+cropSize.y+1)
+        gc:moveTo(imageRect.x-1, imageRect.y + imageRect.height+1)
+        gc:lineTo(imageRect.x + imageRect.width, imageRect.y + imageRect.height+1)
+        gc:stroke()
 
         -- draw border around the preview
         gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
