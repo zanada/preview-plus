@@ -269,13 +269,23 @@ function Preview:createDialog()
         -- integer rectangle of image on canvas
         local imageRect = Rectangle(math.floor(imagePos.x), math.floor(imagePos.y), cropSize.x, cropSize.y)
 
+        -- Rasterize at a fixed origin before translating, so panning does not
+        -- change the sampling phase used to scale the sprite.
+        local scaledImage
+        if cropSize.x > 0 and cropSize.y > 0 then
+          scaledImage = Image(cropSize.x, cropSize.y)
+          scaledImage.context:drawImage(croppedImage, croppedImage.bounds, scaledImage.bounds)
+        end
+
         local themeColor = app.theme.color --[[@as ThemeColor]]
         -- fill background
         gc.color = themeColor.editor_face
         gc:fillRect(0,0,gc.width,gc.height)
         
-        -- draw image onto background
-        gc:drawImage(croppedImage, croppedImage.bounds, imageRect)
+        -- draw the pre-scaled image onto the background without resampling
+        if scaledImage then
+          gc:drawImage(scaledImage, scaledImage.bounds, imageRect)
+        end
         
         -- draw border around image
         gc.color = themeColor.editor_sprite_border
@@ -292,10 +302,10 @@ function Preview:createDialog()
         gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
 
         -- debug text
-        -- gc.color = Color{gray=255,alpha=100}
-        -- gc:fillRect(0,gc.height-50,150,50)
-        -- gc.color = Color{r=0,g=0,b=0,a=255}
-        -- gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
+        gc.color = Color{gray=255,alpha=100}
+        gc:fillRect(0,gc.height-50,150,50)
+        gc.color = Color{r=0,g=0,b=0,a=255}
+        gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
         -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
         -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
         -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
