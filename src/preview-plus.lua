@@ -130,7 +130,8 @@ local Preview = {
   spritePos=Point(0,0),
   zoomLevel=13,
   mouseDragging=false,
-  dragPos=Point(0,0)
+  dragPos=Point(0,0),
+  lastCanvasSize=Point(0,0)
 }
 
 --- Returns a point in sprite space converted to canvas space
@@ -165,31 +166,36 @@ function Preview:scale()
   return scaleFromZoomLevel(self.zoomLevel)
 end
 
----update zoom in or out
----@param zoomIn boolean true if zooming in, false if out
+---update zoom to a given zoom level
+---@param level integer new zoom level
 ---@param ev MouseEvent|nil
 ---@return boolean return true if zoom updated
-function Preview:zoom(zoomIn, ev)
-  local changed = false
-  local oldScale
-  if zoomIn and self.zoomLevel < scalesSize then
-    oldScale = self:scale()
-    self.zoomLevel = self.zoomLevel + 1
-    changed = true
-  end
-  if not zoomIn and self.zoomLevel > 1 then
-    oldScale = self:scale()
-    self.zoomLevel = self.zoomLevel - 1
-    changed = true
-  end
-  if not changed then return false end
+function Preview:zoomTo(level, ev)
+  assert(1 <= level and level <= #zoomScales)
+  if level == self.zoomLevel then return false end
+
+  local oldScale = self:scale()
+  self.zoomLevel = level
+  self.dialog:modify{id="zoom_slider", value = level-defaultZoomLevel}
   
   -- update sprite position so we zoom on mouse position
-  local target = Point(0.5, 0.5)
+  local target = Point(0.5*self.lastCanvasSize.x, 0.5*self.lastCanvasSize.y)
   if ev then target = Point(ev.x, ev.y) end
   self.spritePos = target + mulVect(subPoints(self.spritePos, target), self:scale() / oldScale)
 
   return true
+end
+
+---update zoom in or out by one level
+---@param zoomIn boolean true if zooming in, false if out
+---@param ev MouseEvent|nil
+---@return boolean return true if zoom updated
+function Preview:zoomStep(zoomIn, ev)
+  local direction = zoomIn and 1 or -1
+  local newLevel = self.zoomLevel + direction
+  if newLevel < 1 or newLevel > #zoomScales then return false end
+
+  return self:zoomTo(newLevel, ev)
 end
 
 --- @protected
@@ -207,18 +213,20 @@ function Preview:createDialog()
   dialog
   :button{
     id="center",
-    label="",
     text="",
     selected=false,
-    focus=false
+    focus=false,
+    visible=true
   }
   :canvas{
     id="myCanvas",
-    width=200,
+    width=150,
     height=200,
+    visible=true,
     onpaint=function (ev)
       --- @type GraphicsContext
       local gc = ev.context
+      self.lastCanvasSize = Point(gc.width, gc.height)
       if self.sprite then
         -- TODO: Option ot Isolate active layer
         local spriteImage = Image(self.sprite) --[[@as Image]]
@@ -271,6 +279,7 @@ function Preview:createDialog()
 
         -- Rasterize at a fixed origin before translating, so panning does not
         -- change the sampling phase used to scale the sprite.
+        -- FIXME: This becomes really expensive when zooming far in, crop to visible portion
         local scaledImage
         if cropSize.x > 0 and cropSize.y > 0 then
           scaledImage = Image(cropSize.x, cropSize.y)
@@ -341,10 +350,22 @@ function Preview:createDialog()
     onwheel=function(ev)
       if ev.deltaY == 0 then return end
       
-      if self:zoom(ev.deltaY < 0, ev) then
+      if self:zoomStep(ev.deltaY < 0, ev) then
         self:repaint()
       end
     end
+  }
+  :slider{
+    id="zoom_slider",
+    label="zoom",
+    min=1-defaultZoomLevel,
+    max=#zoomScales-defaultZoomLevel,
+    value=self.zoomLevel-defaultZoomLevel,
+    onchange=function ()
+      self:zoomTo(dialog.data["zoom_slider"] + defaultZoomLevel)
+      self:repaint()
+    end,
+    onrelease=function () end
   }
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
@@ -362,6 +383,8 @@ function Preview:new()
   o.visible = false
   o.open = false
   o.mouseDragging = false
+  o.lastCanvasSize = Point(0,0)
+
   o:createDialog()
   o.listeners = {}
   table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
