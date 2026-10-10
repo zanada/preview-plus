@@ -77,7 +77,42 @@ local zoomScales = {
   { 64, 1  },
 }
 
+---return scale from index in zoomScales
+---@param l integer
+---@return number
+local function scaleFromZoomLevel(l)
+  return zoomScales[l][1] / zoomScales[l][2]
+end
+
+---@param scale number
+---@return integer
+local function findClosestZoomLevel(scale)
+  local left = 1
+  local right = #zoomScales
+  local mid
+
+  local line = ""
+  while left <= right do
+    mid = (left + right) // 2
+    line = line .. "left: " .. tostring(left) .. " mid: " .. tostring(mid) .. " right: " .. tostring(right) .. "\n"
+
+    local testScale = scaleFromZoomLevel(mid)
+    if testScale == scale then
+      print(line)
+      return mid 
+    end
+    if testScale > scale then
+      right = mid - 1
+    else
+      left = mid + 1
+    end
+  end
+  print(line)
+  return mid
+end
+
 local scalesSize = #zoomScales
+local defaultZoomLevel= findClosestZoomLevel(1.0)
 
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
@@ -130,22 +165,34 @@ end
 ---return the current scale according to zoom
 ---@return number
 function Preview:scale()
-  return zoomScales[self.zoomLevel][1] / zoomScales[self.zoomLevel][2]
+  return scaleFromZoomLevel(self.zoomLevel)
 end
 
 ---update zoom in or out
 ---@param zoomIn boolean true if zooming in, false if out
+---@param ev MouseEvent|nil
 ---@return boolean return true if zoom updated
-function Preview:zoom(zoomIn)
+function Preview:zoom(zoomIn, ev)
+  local changed = false
+  local oldScale
   if zoomIn and self.zoomLevel < scalesSize then
+    oldScale = self:scale()
     self.zoomLevel = self.zoomLevel + 1
-    return true
+    changed = true
   end
   if not zoomIn and self.zoomLevel > 1 then
+    oldScale = self:scale()
     self.zoomLevel = self.zoomLevel - 1
-    return true
+    changed = true
   end
-  return false
+  if not changed then return false end
+  
+  -- update sprite position so we zoom on mouse position
+  local target = Point(0.5, 0.5)
+  if ev then target = Point(ev.x, ev.y) end
+  self.spritePos = target + mulVect(subPoints(self.spritePos, target), self:scale() / oldScale)
+
+  return true
 end
 
 --- @protected
@@ -164,7 +211,7 @@ function Preview:createDialog()
   :button{
     id="center",
     label="",
-    text=self.mou,
+    text="",
     selected=false,
     focus=false
   }
@@ -287,7 +334,7 @@ function Preview:createDialog()
     onwheel=function(ev)
       if ev.deltaY == 0 then return end
       
-      if self:zoom(ev.deltaY < 0) then
+      if self:zoom(ev.deltaY < 0, ev) then
         self:repaint()
       end
     end
@@ -303,7 +350,7 @@ function Preview:new()
   self.__index = self
 
   o.spritePos = Point(10,10)
-  o.zoomLevel = 13
+  o.zoomLevel = defaultZoomLevel
   o.sprite = app.sprite
   o.visible = false
   o.open = false
@@ -355,7 +402,7 @@ end
 ---@return Preview | nil
 local function GetCurrentPreview()
   if app.sprite == nil then return nil end
-  return previews[app.sprite.id]
+  return previews[app.sprite["id"]]
 end
 
 ---@return boolean
@@ -386,7 +433,7 @@ local function TogglePreview(sprite)
   -- create preview if none exists
   preview = Preview:new()
   previewCount = previewCount + 1
-  previews[sprite.id] = preview
+  previews[sprite["id"]] = preview
 
   preview:show()
 end
