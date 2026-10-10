@@ -272,20 +272,20 @@ function Preview:createDialog()
         -- integer rectangle of image on canvas
         local imageRect = Rectangle(math.floor(imagePos.x), math.floor(imagePos.y), cropSize.x, cropSize.y)
 
+        local themeColor = app.theme.color --[[@as ThemeColor]]
         -- fill background
-        gc.color = app.theme.color.editor_face
+        gc.color = themeColor.editor_face
         gc:fillRect(0,0,gc.width,gc.height)
-
         
         -- draw image onto background
         gc:drawImage(croppedImage, croppedImage.bounds, imageRect)
         
         -- draw border around image
-        gc.color = app.theme.color.editor_sprite_border
+        gc.color = themeColor.editor_sprite_border
         gc:strokeRect(imageRect.x-1, imageRect.y-1, imageRect.width+2, imageRect.height+2)
 
         -- draw line below border
-        gc.color = app.theme.color.editor_sprite_bottom_border
+        gc.color = themeColor.editor_sprite_bottom_border
         gc:beginPath()
         gc:moveTo(imageRect.x-1, imageRect.y + imageRect.height+1)
         gc:lineTo(imageRect.x + imageRect.width, imageRect.y + imageRect.height+1)
