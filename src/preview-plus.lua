@@ -126,6 +126,7 @@ local Preview = {
   sprite=nil,
   visible=false,
   open=false,
+  pinned=false,
   listeners={},
   spritePos=Point(0,0),
   zoomLevel=13,
@@ -366,7 +367,13 @@ function Preview:createDialog()
     selected=false,
     focus=false,
     visible=false,
-    onclick=function() end
+    onclick=function() 
+      self.pinned = dialog.data["pin_check"]
+      -- case where window should disappear when unpinned
+      if not self.pinned then
+        self:updateVisibility() 
+      end
+    end
   }
   :check{ id="layer_check",
     text="Isolate Layer",
@@ -436,10 +443,11 @@ end
 function Preview:updateVisibility()
   if app.sprite == self.sprite and not self.visible and self.open then
     self:show()
+    self:repaint()
     return
   end
-  -- still open but hide when other sprite
-  if app.sprite ~= self.sprite and self.visible then
+  -- still open but hide when other sprite is open
+  if app.sprite ~= self.sprite and self.visible and not self.pinned then
     self.dialog:close()
     -- open is set to false by default but it is actuall still open
     -- flip open back to true
@@ -517,7 +525,6 @@ local function appSiteChanged()
   for _, preview in pairs(previews) do
     if preview then
       preview:updateVisibility()
-      preview:repaint()
     end
   end
 end
