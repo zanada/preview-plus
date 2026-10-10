@@ -63,6 +63,7 @@ local zoomScales = {
   { 2,  3  }, -- 60%
   { 4,  5  }, -- 80%
   { 1,  1  }, -- 100%
+  { 3,  2  }, -- 150%
   { 2,  1  },
   { 3,  1  },
   { 4,  1  },
@@ -91,14 +92,11 @@ local function findClosestZoomLevel(scale)
   local right = #zoomScales
   local mid
 
-  local line = ""
   while left <= right do
     mid = (left + right) // 2
-    line = line .. "left: " .. tostring(left) .. " mid: " .. tostring(mid) .. " right: " .. tostring(right) .. "\n"
 
     local testScale = scaleFromZoomLevel(mid)
     if testScale == scale then
-      print(line)
       return mid 
     end
     if testScale > scale then
@@ -107,7 +105,6 @@ local function findClosestZoomLevel(scale)
       left = mid + 1
     end
   end
-  print(line)
   return mid
 end
 
@@ -296,9 +293,9 @@ function Preview:createDialog()
 
         -- debug text
         -- gc.color = Color{gray=255,alpha=100}
-        -- gc:fillRect{0,gc.height-50,150,50}
+        -- gc:fillRect(0,gc.height-50,150,50)
         -- gc.color = Color{r=0,g=0,b=0,a=255}
-        -- gc:fillText("gc size: (" .. tostring(gc.width) .. ", " .. tostring(gc.height) .. ")", 5, gc.height - 40)
+        -- gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
         -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
         -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
         -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
