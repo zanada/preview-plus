@@ -45,6 +45,39 @@ local function floorPoint(point)
   return   Point(math.floor(point.x), math.floor(point.y))
 end
 
+--- scales represnted by numerator and denominator
+---@type integer[][]
+local zoomScales = {
+  { 1,  64 },
+  { 1,  48 },
+  { 1,  32 },
+  { 1,  24 },
+  { 1,  16 },
+  { 1,  12 },
+  { 1,  8  },
+  { 1,  6  },
+  { 1,  5  },
+  { 1,  4  },
+  { 1,  3  },
+  { 1,  2  },
+  { 2,  3  }, -- 60%
+  { 4,  5  }, -- 80%
+  { 1,  1  }, -- 100%
+  { 2,  1  },
+  { 3,  1  },
+  { 4,  1  },
+  { 5,  1  },
+  { 6,  1  },
+  { 8,  1  },
+  { 12, 1  },
+  { 16, 1  },
+  { 24, 1  },
+  { 32, 1  },
+  { 48, 1  },
+  { 64, 1  },
+}
+
+local scalesSize = #zoomScales
 
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
@@ -53,7 +86,7 @@ end
 ---@field visible boolean true if currently visible
 ---@field open boolean true if toggled on, whether or not currently visible
 ---@field spritePos Point Position of the origin of sprite within the preview window
----@field zoom number Zoom level
+---@field zoomLevel integer index on the zoom_scales array
 ---@field mouseDragging boolean True if being panned by mouse
 ---@field dragPos Point Last position of mouse while dragging
 local Preview = {
@@ -63,7 +96,7 @@ local Preview = {
   open=false,
   listeners={},
   spritePos=Point(0,0),
-  zoom=1.0,
+  zoomLevel=13,
   mouseDragging=false,
   dragPos=Point(0,0)
 }
@@ -74,7 +107,7 @@ local Preview = {
 --- @param point Point
 --- @return Point
 function Preview:spriteToCanvasCoord(point)
-  return addPoints(mulVect(point, self.zoom), self.spritePos)
+  return addPoints(mulVect(point, self:scale()), self.spritePos)
 end
 
 --- Converts the size from sprite space to canvas space according to the zoom level
@@ -82,7 +115,7 @@ end
 --- @param size Point a point representing the size of a rectangle
 --- @return Point
 function Preview:spriteToCanvasSize(size)
-  return Point(size.x * self.zoom, size.y * self.zoom)
+  return Point(size.x * self:scale(), size.y * self:scale())
 end
 
 --- Returns the size of the sprite 
@@ -91,7 +124,28 @@ end
 --- @param point Point
 --- @return Point
 function Preview:CanvasToSpriteCoord(point)
-  return mulVect(subPoints(point, self.spritePos), 1/self.zoom)
+  return mulVect(subPoints(point, self.spritePos), 1/self:scale())
+end
+
+---return the current scale according to zoom
+---@return number
+function Preview:scale()
+  return zoomScales[self.zoomLevel][1] / zoomScales[self.zoomLevel][2]
+end
+
+---update zoom in or out
+---@param zoomIn boolean true if zooming in, false if out
+---@return boolean return true if zoom updated
+function Preview:zoom(zoomIn)
+  if zoomIn and self.zoomLevel < scalesSize then
+    self.zoomLevel = self.zoomLevel + 1
+    return true
+  end
+  if not zoomIn and self.zoomLevel > 1 then
+    self.zoomLevel = self.zoomLevel - 1
+    return true
+  end
+  return false
 end
 
 --- @protected
@@ -151,11 +205,12 @@ function Preview:createDialog()
         -- body of canvas that is being drawn to (canvas excluding border)
         local b_width = 3
         local body = Rectangle(b_width, b_width, gc.width - 2*b_width, gc.height - 2*b_width)
+        local scale = self:scale()
 
         -- bound cropped position such that it doesn't leave the screen
         -- with a max bound of half the width/height
         -- (a bit weird to put it here but I need the graphics context)
-        local cropSize = floorPoint(Point(croppedImage.width * self.zoom, croppedImage.height*self.zoom))
+        local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
         local h_bound = math.min(body.width/2, cropSize.x)
         local v_bound = math.min(body.height/2, cropSize.y)
 
@@ -231,22 +286,10 @@ function Preview:createDialog()
 
     onwheel=function(ev)
       if ev.deltaY == 0 then return end
-
-      local direction = ev.deltaY > 0 and -1 or 1
-      local zoomLevel
-      if self.zoom >= 1 then zoomLevel = math.floor(self.zoom)
-      else zoomLevel = -math.floor(1/self.zoom) end
-      local z = self.zoom
       
-      if zoomLevel > 1 then self.zoom = zoomLevel + direction
-      elseif zoomLevel == 1 then
-        if direction > 0 then self.zoom = 2
-        else self.zoom = 1/2 end
-      else self.zoom = 1/(math.abs(zoomLevel) - direction) end
-
-      --print(ev.deltaY, z .. " => " .. self.zoom)
-
-      self:repaint()
+      if self:zoom(ev.deltaY < 0) then
+        self:repaint()
+      end
     end
   }
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
@@ -260,7 +303,7 @@ function Preview:new()
   self.__index = self
 
   o.spritePos = Point(10,10)
-  o.zoom = 1.0
+  o.zoomLevel = 13
   o.sprite = app.sprite
   o.visible = false
   o.open = false
@@ -272,8 +315,6 @@ function Preview:new()
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
 end
-
--- 128, 192
 
 --- @return nil
 function Preview:show()
