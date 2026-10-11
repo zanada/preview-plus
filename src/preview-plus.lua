@@ -45,6 +45,29 @@ local function floorPoint(point)
   return   Point(math.floor(point.x), math.floor(point.y))
 end
 
+---Draw the flattened image of all layers in the group onto the combined image
+---CombinedImage image is assumed to have the dimensions of the full sprite
+---@param combinedImage Image
+---@param layer Layer
+---@param frameNumber integer
+---@return nil
+local function combineLayers(combinedImage, layer, frameNumber)
+  if not layer.isVisible then return end
+
+  local cel = layer:cel(frameNumber)
+  if not layer.isGroup then
+    if cel then
+      combinedImage:drawImage(cel.image, cel.position, math.floor((cel.opacity/255) * layer.opacity), layer.blendMode)
+    end
+    return
+  end
+
+  -- combine child layers, starting from lowest
+  for _, l in ipairs(layer.layers) do
+    combineLayers(combinedImage, l, frameNumber)
+  end
+end
+
 --- scales represnted by numerator and denominator
 ---@type integer[][]
 local zoomScales = {
@@ -78,6 +101,8 @@ local zoomScales = {
   { 64, 1  },
 }
 
+local scalesSize = #zoomScales
+
 ---return scale from index in zoomScales
 ---@param l integer
 ---@return number
@@ -89,7 +114,7 @@ end
 ---@return integer
 local function findClosestZoomLevel(scale)
   local left = 1
-  local right = #zoomScales
+  local right = scalesSize
   local mid
 
   while left <= right do
@@ -108,7 +133,6 @@ local function findClosestZoomLevel(scale)
   return mid
 end
 
-local scalesSize = #zoomScales
 local defaultZoomLevel= findClosestZoomLevel(1.0)
 
 ---@class Preview
@@ -121,6 +145,8 @@ local defaultZoomLevel= findClosestZoomLevel(1.0)
 ---@field zoomLevel integer index on the zoom_scales array
 ---@field mouseDragging boolean True if being panned by mouse
 ---@field dragPos Point Last position of mouse while dragging
+---@field lastCanvasSize Point Last recorded size of preview canvas
+---@field isolateLayer boolean true if showing just the active layer
 local Preview = {
   dialog=nil,
   sprite=nil,
@@ -132,7 +158,8 @@ local Preview = {
   zoomLevel=13,
   mouseDragging=false,
   dragPos=Point(0,0),
-  lastCanvasSize=Point(0,0)
+  lastCanvasSize=Point(0,0),
+  isolateLayer=false,
 }
 
 --- Returns a point in sprite space converted to canvas space
@@ -172,7 +199,7 @@ end
 ---@param ev MouseEvent|nil
 ---@return boolean return true if zoom updated
 function Preview:zoomTo(level, ev)
-  assert(1 <= level and level <= #zoomScales)
+  assert(1 <= level and level <= scalesSize)
   if level == self.zoomLevel then return false end
 
   local oldScale = self:scale()
@@ -194,7 +221,7 @@ end
 function Preview:zoomStep(zoomIn, ev)
   local direction = zoomIn and 1 or -1
   local newLevel = self.zoomLevel + direction
-  if newLevel < 1 or newLevel > #zoomScales then return false end
+  if newLevel < 1 or newLevel > scalesSize then return false end
 
   return self:zoomTo(newLevel, ev)
 end
@@ -219,24 +246,43 @@ function Preview:createDialog()
     onclick=function()
       local vis = dialog.data["expand_check"]
       dialog:modify{id="pin_check", visible=vis}
-      dialog:modify{id="layer_check", visible=vis}
-      dialog:modify{id="zoom_separator", visible=vis}
-      dialog:modify{id="zoom_slider", visible=vis}
-      dialog:modify{id="area_separator", visible=vis}
-      dialog:modify{id="area_combo", visible=vis}
+      :modify{id="layer_check", visible=vis}
+      :modify{id="zoom_separator", visible=vis}
+      :modify{id="zoom_slider", visible=vis}
+      :modify{id="area_separator", visible=vis}
+      :modify{id="area_combo", visible=vis}
+      :modify{id="myCanvas", width=self.lastCanvasSize.x, height=self.lastCanvasSize.y}
     end
   }
   :canvas{ id="myCanvas",
-    width=180,
-    height=200,
+    width=self.lastCanvasSize.x,
+    height=self.lastCanvasSize.y,
     visible=true,
     onpaint=function (ev)
       --- @type GraphicsContext
       local gc = ev.context
       self.lastCanvasSize = Point(gc.width, gc.height)
+
+      local themeColor = app.theme.color --[[@as ThemeColor]]
+      -- fill background
+      gc.color = themeColor.editor_face
+      gc:fillRect(0,0,gc.width,gc.height)
+
       if self.sprite then
-        -- TODO: Option ot Isolate active layer
-        local spriteImage = Image(self.sprite) --[[@as Image]]
+        -- get image depending on isolating layers and frame
+        ---@type Image
+        local spriteImage
+        if self.isolateLayer then
+          spriteImage = Image(self.sprite.width, self.sprite.height)
+          combineLayers(spriteImage, app.layer, app.frame.frameNumber)
+        else
+          if app.frame.frameNumber == 1 then
+            spriteImage = Image(self.sprite) --[[@as Image]]
+          else
+            spriteImage = Image(self.sprite.width, self.sprite.height)
+            spriteImage:drawSprite(self.sprite, app.frame.frameNumber)
+          end
+        end
 
         -- overlay the full sprite over a checkerboard pattern for transparent values
         local fullImage = Image(spriteImage.width, spriteImage.height)
@@ -292,11 +338,6 @@ function Preview:createDialog()
           scaledImage = Image(cropSize.x, cropSize.y)
           scaledImage.context:drawImage(croppedImage, croppedImage.bounds, scaledImage.bounds)
         end
-
-        local themeColor = app.theme.color --[[@as ThemeColor]]
-        -- fill background
-        gc.color = themeColor.editor_face
-        gc:fillRect(0,0,gc.width,gc.height)
         
         -- draw the pre-scaled image onto the background without resampling
         if scaledImage then
@@ -314,18 +355,18 @@ function Preview:createDialog()
         gc:lineTo(imageRect.x + imageRect.width, imageRect.y + imageRect.height+1)
         gc:stroke()
 
-        -- draw border around the preview
-        gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
-
-        -- debug text
-        -- gc.color = Color{gray=255,alpha=100}
-        -- gc:fillRect(0,gc.height-50,150,50)
-        -- gc.color = Color{r=0,g=0,b=0,a=255}
-        -- gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
-        -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
-        -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
-        -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
       end
+      -- draw border around the preview
+      gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
+
+      -- debug text
+      -- gc.color = Color{gray=255,alpha=100}
+      -- gc:fillRect(0,gc.height-50,150,50)
+      -- gc.color = Color{r=0,g=0,b=0,a=255}
+      -- gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
+      -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
+      -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
+      -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
     end,
 
     onmousedown=function(ev)
@@ -369,9 +410,10 @@ function Preview:createDialog()
     visible=false,
     onclick=function() 
       self.pinned = dialog.data["pin_check"]
+
       -- case where window should disappear when unpinned
       if not self.pinned then
-        self:updateVisibility() 
+        self:updateVisibility()
       end
     end
   }
@@ -379,7 +421,10 @@ function Preview:createDialog()
     text="Isolate Layer",
     selected=false,focus=false,
     visible=false,
-    onclick=function() end
+    onclick=function() 
+      self.isolateLayer = dialog.data["layer_check"]
+      self:repaint()
+    end
   }
   :separator{ id="zoom_separator",
     text="Zoom Level",
@@ -389,7 +434,7 @@ function Preview:createDialog()
     visible=false,
     focus=false,
     min=1-defaultZoomLevel,
-    max=#zoomScales-defaultZoomLevel,
+    max=scalesSize-defaultZoomLevel,
     value=self.zoomLevel-defaultZoomLevel,
     onchange=function ()
       self:zoomTo(dialog.data["zoom_slider"] + defaultZoomLevel)
@@ -422,7 +467,7 @@ function Preview:new()
   o.visible = false
   o.open = false
   o.mouseDragging = false
-  o.lastCanvasSize = Point(0,0)
+  o.lastCanvasSize = Point(180,200)
 
   o:createDialog()
   o.listeners = {}
@@ -443,7 +488,6 @@ end
 function Preview:updateVisibility()
   if app.sprite == self.sprite and not self.visible and self.open then
     self:show()
-    self:repaint()
     return
   end
   -- still open but hide when other sprite is open
@@ -525,6 +569,7 @@ local function appSiteChanged()
   for _, preview in pairs(previews) do
     if preview then
       preview:updateVisibility()
+      preview:repaint()
     end
   end
 end
