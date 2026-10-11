@@ -135,6 +135,18 @@ end
 
 local defaultZoomLevel= findClosestZoomLevel(1.0)
 
+---Modify dialog widgets without losing the user's current window size or position
+---@param dialog Dialog
+---@param modifications table[]
+local function modifyDialogPreservingBounds(dialog, modifications)
+  local bounds = dialog.bounds
+  for _, modification in ipairs(modifications) do
+    dialog:modify(modification)
+  end
+
+  dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
+end
+
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
 ---@field sprite Sprite | nil reference to sprite it displays
@@ -245,13 +257,14 @@ function Preview:createDialog()
     focus=false,
     onclick=function()
       local vis = dialog.data["expand_check"]
-      dialog:modify{id="pin_check", visible=vis}
-      :modify{id="layer_check", visible=vis}
-      :modify{id="zoom_separator", visible=vis}
-      :modify{id="zoom_slider", visible=vis}
-      :modify{id="area_separator", visible=vis}
-      :modify{id="area_combo", visible=vis}
-      :modify{id="myCanvas", width=self.lastCanvasSize.x, height=self.lastCanvasSize.y}
+      modifyDialogPreservingBounds(dialog, {
+        {id="pin_check", visible=vis},
+        {id="layer_check", visible=vis},
+        {id="zoom_separator", visible=vis},
+        {id="zoom_slider", visible=vis},
+        {id="area_separator", visible=vis},
+        {id="area_combo", visible=vis},
+      })
     end
   }
   :canvas{ id="myCanvas",
