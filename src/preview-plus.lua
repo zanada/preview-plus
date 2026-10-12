@@ -28,6 +28,16 @@ local function mulVect(vect, scalar)
     return Point(vect.x*scalar, vect.y*scalar)
 end
 
+---@param t any
+---@return table
+local function getKeys(t)
+  local keys = {}
+  for key, value in pairs(t) do
+    table.insert(keys, key)
+  end
+  return keys
+end
+
 ---convert point to integer point by flooring
 ---@param point any
 local function floorPoint(point)
@@ -179,6 +189,7 @@ end
 ---@field dragPos Point Last position of mouse while dragging
 ---@field lastCanvasSize Point Last recorded size of preview canvas
 ---@field isolateLayer boolean true if showing just the active layer
+---@field area Rectangle area of sprite currently shown
 local Preview = {
   dialog=nil,
   sprite=nil,
@@ -192,6 +203,7 @@ local Preview = {
   dragPos=Point(0,0),
   lastCanvasSize=Point(0,0),
   isolateLayer=false,
+  area=Rectangle()
 }
 
 ---return the current scale according to zoom
@@ -232,9 +244,27 @@ function Preview:zoomStep(zoomIn, ev)
   return self:zoomTo(newLevel, ev)
 end
 
+
+function Preview:setArea(bounds)
+  if self.area == bounds then return false end
+  
+  -- center view
+  local areaCenter = Point(bounds.x+bounds.w/2, bounds.y+bounds.h/2)
+  self.spritePos = Point(self.lastCanvasSize.x/2, self.lastCanvasSize.y/2) - mulVect(areaCenter,self:scale())
+  
+  self.area = bounds
+  if self.dialog then self.dialog:repaint() end
+end
+
 --- @protected
 --- @return nil
 function Preview:createDialog()
+
+  ---@type table<string, Rectangle>
+  local areas = {["Canvas"]=self.sprite.bounds}
+  -- guard for option update unecessarily resetting area
+  local refreshingAreaOptions = false
+
   local dialog = Dialog{
     title="Preview+",
     notitlebar=false,
@@ -277,91 +307,94 @@ function Preview:createDialog()
 
       if self.sprite then
         -- body of canvas that is being drawn to (canvas excluding border)
-        local borderW = 3  -- possibly changes with theme
-        local canvasBody = Rectangle(borderW, borderW, gc.width - 2*borderW, gc.height - 2*borderW)
         local scale = self:scale()
-
+        
         -- Let: sprite refer to the full sprite
         --      crop refer to the section of the sprite selected (could be same as sprite)
         --      size and position refer to canvas pixels unless stated as texels
         
         -- TODO: Choose area to crop from
-        local cropTexelBounds = self.sprite.bounds
-        cropTexelBounds.origin = Point(0,0)
+        local cropTexelBounds = self.area
+        --cropTexelBounds.origin = Point(0,0)
+        if cropTexelBounds.w > 0 and cropTexelBounds.h > 0 then
         
-        local cropOffset = mulVect(cropTexelBounds.origin, scale)
-        local cropBounds = Rectangle(
-          self.spritePos.x+cropOffset.x, self.spritePos.y+cropOffset.y,
-          cropTexelBounds.w*scale, cropTexelBounds.h*scale
-        )
-
-        -- bound cropped position such that it doesn't leave the screen
-        -- with a max bound of half the width/height
-        --local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
-        local h_bound = math.min(canvasBody.width/2, cropBounds.w)
-        local v_bound = math.min(canvasBody.height/2, cropBounds.h)
-
-        cropBounds.x = math.min(cropBounds.x, canvasBody.x+canvasBody.width-h_bound) -- left bound
-        cropBounds.x = math.max(cropBounds.x, canvasBody.x+h_bound-cropBounds.w) -- right bound
-        cropBounds.y = math.min(cropBounds.y, canvasBody.y+canvasBody.height-v_bound)-- bottom bound
-        cropBounds.y = math.max(cropBounds.y, canvasBody.y+v_bound-cropBounds.h) -- top bound
-
-        -- update sprite pos to match
-        self.spritePos = addPoints(cropBounds.origin, cropOffset)
-
-        -- snap to world pixels
-        cropBounds = Rectangle(math.floor(cropBounds.x), math.floor(cropBounds.y),
-                               math.floor(cropBounds.w), math.floor(cropBounds.h))
-
-        local renderImage = Image(cropTexelBounds.w, cropTexelBounds.h)
-        
-        -- -- draw checkerboard for transparency
-        local s = 16
-        local rc = renderImage.context
-        -- draw checkerboard
-        for i = cropTexelBounds.x // s, (cropTexelBounds.x + cropTexelBounds.w) // s do
-          for j = cropTexelBounds.y // s, (cropTexelBounds.y + cropTexelBounds.h) // s do
-            if (i + j) % 2 == 0 then
-              rc.color = Color{ gray=128, alpha=255 }
-            else
-              rc.color = Color{ gray=192, alpha=255 }
-            end
-            rc:fillRect(i*s - cropTexelBounds.x, j*s - cropTexelBounds.y, s, s)
-          end
-        end
-
-        -- get image depending on isolating layers and frame
-        if self.isolateLayer then
-          combineLayers(renderImage, app.layer, app.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
-        else
-          renderImage:drawSprite(self.sprite, app.frame.frameNumber,
-            Point(-cropTexelBounds.x, -cropTexelBounds.y)
+          local cropOffset = mulVect(cropTexelBounds.origin, scale)
+          local cropBounds = Rectangle(
+            self.spritePos.x+cropOffset.x, self.spritePos.y+cropOffset.y,
+            cropTexelBounds.w*scale, cropTexelBounds.h*scale
           )
-        end
 
-        if scale % 1 ~= 0 and scale < 2 then
-          -- Rasterize at a fixed origin before translating, so panning does not
-          -- change the sampling phase used to scale the sprite.
-          local scaledImage = Image(cropBounds.w, cropBounds.h)
-          scaledImage.context:drawImage(renderImage, renderImage.bounds, scaledImage.bounds)
+          local borderW = 3  -- possibly changes with theme
+          local canvasBody = Rectangle(borderW, borderW, gc.width - 2*borderW, gc.height - 2*borderW)
           
-          if scaledImage then
-            gc:drawImage(scaledImage, scaledImage.bounds, cropBounds)
-          end
-        else
-          gc:drawImage(renderImage, renderImage.bounds, cropBounds)
-        end
-        
-        -- draw border around image
-        gc.color = themeColor.editor_sprite_border
-        gc:strokeRect(cropBounds.x-1, cropBounds.y-1, cropBounds.width+2, cropBounds.height+2)
+          -- bound cropped position such that it doesn't leave the screen
+          -- with a max bound of half the width/height
+          --local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
+          local h_bound = math.min(canvasBody.width/2, cropBounds.w)
+          local v_bound = math.min(canvasBody.height/2, cropBounds.h)
 
-        -- draw line below border
-        gc.color = themeColor.editor_sprite_bottom_border
-        gc:beginPath()
-        gc:moveTo(cropBounds.x-1, cropBounds.y + cropBounds.height+1)
-        gc:lineTo(cropBounds.x + cropBounds.width, cropBounds.y + cropBounds.height+1)
-        gc:stroke()
+          cropBounds.x = math.min(cropBounds.x, canvasBody.x+canvasBody.width-h_bound) -- left bound
+          cropBounds.x = math.max(cropBounds.x, canvasBody.x+h_bound-cropBounds.w) -- right bound
+          cropBounds.y = math.min(cropBounds.y, canvasBody.y+canvasBody.height-v_bound)-- bottom bound
+          cropBounds.y = math.max(cropBounds.y, canvasBody.y+v_bound-cropBounds.h) -- top bound
+
+          -- update sprite pos to match
+          self.spritePos = subPoints(cropBounds.origin, cropOffset)
+
+          -- snap to world pixels
+          cropBounds = Rectangle(math.floor(cropBounds.x), math.floor(cropBounds.y),
+                                math.floor(cropBounds.w), math.floor(cropBounds.h))
+
+          local renderImage = Image(cropTexelBounds.w, cropTexelBounds.h)
+          
+          -- -- draw checkerboard for transparency
+          local s = 16
+          local rc = renderImage.context
+          -- draw checkerboard
+          for i = cropTexelBounds.x // s, (cropTexelBounds.x + cropTexelBounds.w) // s do
+            for j = cropTexelBounds.y // s, (cropTexelBounds.y + cropTexelBounds.h) // s do
+              if (i + j) % 2 == 0 then
+                rc.color = Color{ gray=128, alpha=255 }
+              else
+                rc.color = Color{ gray=192, alpha=255 }
+              end
+              rc:fillRect(i*s - cropTexelBounds.x, j*s - cropTexelBounds.y, s, s)
+            end
+          end
+
+          -- get image depending on isolating layers and frame
+          if self.isolateLayer then
+            combineLayers(renderImage, app.layer, app.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+          else
+            renderImage:drawSprite(self.sprite, app.frame.frameNumber,
+              Point(-cropTexelBounds.x, -cropTexelBounds.y)
+            )
+          end
+
+          if scale % 1 ~= 0 and scale < 2 then
+            -- Rasterize at a fixed origin before translating, so panning does not
+            -- change the sampling phase used to scale the sprite.
+            local scaledImage = Image(cropBounds.w, cropBounds.h)
+            scaledImage.context:drawImage(renderImage, renderImage.bounds, scaledImage.bounds)
+            
+            if scaledImage then
+              gc:drawImage(scaledImage, scaledImage.bounds, cropBounds)
+            end
+          else
+            gc:drawImage(renderImage, renderImage.bounds, cropBounds)
+          end
+          
+          -- draw border around image
+          gc.color = themeColor.editor_sprite_border
+          gc:strokeRect(cropBounds.x-1, cropBounds.y-1, cropBounds.width+2, cropBounds.height+2)
+
+          -- draw line below border
+          gc.color = themeColor.editor_sprite_bottom_border
+          gc:beginPath()
+          gc:moveTo(cropBounds.x-1, cropBounds.y + cropBounds.height+1)
+          gc:lineTo(cropBounds.x + cropBounds.width, cropBounds.y + cropBounds.height+1)
+          gc:stroke()
+        end
 
         -- debug text
         -- gc.color = Color{gray=255,alpha=100}
@@ -457,11 +490,62 @@ function Preview:createDialog()
   }
   :combobox{ id="area_combo",
     visible=false,
-    option="Sprite",
-    options={ "Sprite" },
-    onchange=function() end }
+    option="Canvas",
+    options=getKeys(areas),
+    onchange=function() 
+      if refreshingAreaOptions then return end
+      self:setArea(areas[dialog.data["area_combo"]])
+    end
+  }
+
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
+
+  local function updateAreas()
+    areas = {}
+    if self.sprite then
+      areas["Canvas"] = self.sprite.bounds
+      if self.sprite.selection and not self.sprite.selection.isEmpty then
+        areas["Selection"] = self.sprite.selection.bounds
+      end
+      for i = #self.sprite.slices, 1, -1 do
+        local name = self.sprite.slices[i].name
+        local count = 1
+        -- avoid name collisions
+        while areas[name] ~= nil do
+          count = count + 1
+          name = self.sprite.slices[i].name .. " (#" .. tostring(count) .. ")"
+        end
+        areas[name] = self.sprite.slices[i].bounds
+      end
+    end
+    local currentArea = dialog.data["area_combo"]
+    
+    refreshingAreaOptions = true
+    local sortedOptions = getKeys(areas)
+    table.sort(sortedOptions, function (a, b)
+      if a == "Canvas" then return true end
+      if a == "Selection" then
+        return b ~= "Canvas"
+      end
+      return a < b
+    end)
+    dialog:modify{ 
+      id="area_combo",
+      options=sortedOptions,
+      option=currentArea
+    }
+    dialog.data["area_combo"] = currentArea
+    refreshingAreaOptions = false
+
+    if areas[currentArea] == nil then
+      currentArea = "Canvas"
+      dialog:modify{ id="area_combo", option=currentArea }
+      self:setArea(areas[currentArea])
+    end
+  end
+  updateAreas()
+  table.insert(self.listeners, self.sprite.events:on('change', function(ev) updateAreas() end))
 end
 
 --- @return Preview
@@ -477,6 +561,7 @@ function Preview:new()
   o.open = false
   o.mouseDragging = false
   o.lastCanvasSize = Point(180,200)
+  o:setArea(app.sprite.bounds)
 
   o:createDialog()
   o.listeners = {}
