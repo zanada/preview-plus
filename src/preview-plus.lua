@@ -28,17 +28,6 @@ local function mulVect(vect, scalar)
     return Point(vect.x*scalar, vect.y*scalar)
 end
 
----Return the point restricted to the bounds of the rectangle (inclusive)
----@param point Point
----@param rect Rectangle
----@return Point
-local function clampPoint(point, rect)
-    return Point(
-      math.min(math.max(point.x, rect.x), rect.x + rect.width-1),
-      math.min(math.max(point.y, rect.y), rect.y + rect.height-1)
-    )
-end
-
 ---convert point to integer point by flooring
 ---@param point any
 local function floorPoint(point)
@@ -50,21 +39,22 @@ end
 ---@param combinedImage Image
 ---@param layer Layer
 ---@param frameNumber integer
+---@param offset Point
 ---@return nil
-local function combineLayers(combinedImage, layer, frameNumber)
+local function combineLayers(combinedImage, layer, frameNumber, offset)
   if not layer.isVisible then return end
 
   local cel = layer:cel(frameNumber)
   if not layer.isGroup then
     if cel then
-      combinedImage:drawImage(cel.image, cel.position, math.floor((cel.opacity/255) * layer.opacity), layer.blendMode)
+      combinedImage:drawImage(cel.image, addPoints(cel.position, offset), math.floor((cel.opacity/255) * layer.opacity), layer.blendMode)
     end
     return
   end
 
   -- combine child layers, starting from lowest
   for _, l in ipairs(layer.layers) do
-    combineLayers(combinedImage, l, frameNumber)
+    combineLayers(combinedImage, l, frameNumber, offset)
   end
 end
 
@@ -147,6 +137,36 @@ local function modifyDialogPreservingBounds(dialog, modifications)
   dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
 end
 
+--- Returns the world coordinate of an image with given position and scale
+--- from a coordinate in texel space
+--- @param point Point
+--- @param imagePos Point
+--- @param scale number
+--- @return Point
+local function texelToWorldCoord(point, imagePos, scale)
+  return addPoints(mulVect(point, scale), imagePos)
+end
+
+--- Returns the texel coordinate of an image with given position and scale
+--- from a coordinate in world space
+--- @param point Point
+--- @param imagePos Point
+--- @param scale number
+--- @return Point
+local function worldToTexelCoord(point, imagePos, scale)
+  return mulVect(subPoints(point, imagePos), 1/scale)
+end
+
+---Clamp a point to be within rectangle
+---Modifies point
+---@param point any
+---@param rect any
+---@return nil
+local function clampPoint(point, rect)
+  point.x = math.min(math.max(point.x, rect.x), rect.x+rect.w-1)
+  point.y = math.min(math.max(point.y, rect.y), rect.y+rect.h-1)
+end
+
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
 ---@field sprite Sprite | nil reference to sprite it displays
@@ -173,32 +193,6 @@ local Preview = {
   lastCanvasSize=Point(0,0),
   isolateLayer=false,
 }
-
---- Returns a point in sprite space converted to canvas space
---- Image space is defined by it's current position relative to the canvas
---- @protected
---- @param point Point
---- @return Point
-function Preview:spriteToCanvasCoord(point)
-  return addPoints(mulVect(point, self:scale()), self.spritePos)
-end
-
---- Converts the size from sprite space to canvas space according to the zoom level
---- @protected
---- @param size Point a point representing the size of a rectangle
---- @return Point
-function Preview:spriteToCanvasSize(size)
-  return Point(size.x * self:scale(), size.y * self:scale())
-end
-
---- Returns the size of the sprite 
---- Sprite space is defined by it's current position relative to the canvas
---- @protected
---- @param point Point
---- @return Point
-function Preview:CanvasToSpriteCoord(point)
-  return mulVect(subPoints(point, self.spritePos), 1/self:scale())
-end
 
 ---return the current scale according to zoom
 ---@return number
@@ -282,104 +276,106 @@ function Preview:createDialog()
       gc:fillRect(0,0,gc.width,gc.height)
 
       if self.sprite then
-        -- get image depending on isolating layers and frame
-        ---@type Image
-        local spriteImage
-        if self.isolateLayer then
-          spriteImage = Image(self.sprite.width, self.sprite.height)
-          combineLayers(spriteImage, app.layer, app.frame.frameNumber)
-        else
-          if app.frame.frameNumber == 1 then
-            spriteImage = Image(self.sprite) --[[@as Image]]
-          else
-            spriteImage = Image(self.sprite.width, self.sprite.height)
-            spriteImage:drawSprite(self.sprite, app.frame.frameNumber)
-          end
-        end
-
-        -- overlay the full sprite over a checkerboard pattern for transparent values
-        local fullImage = Image(spriteImage.width, spriteImage.height)
-        local squareSize = 16
-        local cxt = fullImage.context
-        -- draw checkerboard
-        for i = 0, (fullImage.width // 16) do
-          for j = 0, (fullImage.width // 16) do
-            if (i + j) % 2 == 0 then
-              cxt.color = Color{ gray=128, alpha=255 }
-            else
-              cxt.color = Color{ gray=192, alpha=255 }
-            end
-            cxt:fillRect(i*squareSize, j*squareSize, squareSize, squareSize)
-          end
-        end
-        -- compose
-        fullImage:drawImage(spriteImage)
-
-        -- TODO: Choose area to crop from
-        local imagePos = self.spritePos
-        local offset = subPoints(self.spritePos, imagePos)
-        local croppedImage = fullImage
-
         -- body of canvas that is being drawn to (canvas excluding border)
-        local b_width = 3
-        local body = Rectangle(b_width, b_width, gc.width - 2*b_width, gc.height - 2*b_width)
+        local borderW = 3  -- possibly changes with theme
+        local canvasBody = Rectangle(borderW, borderW, gc.width - 2*borderW, gc.height - 2*borderW)
         local scale = self:scale()
+
+        -- Let: sprite refer to the full sprite
+        --      crop refer to the section of the sprite selected (could be same as sprite)
+        --      size and position refer to canvas pixels unless stated as texels
+        
+        -- TODO: Choose area to crop from
+        local cropTexelBounds = self.sprite.bounds
+        cropTexelBounds.origin = Point(0,0)
+        
+        local cropOffset = mulVect(cropTexelBounds.origin, scale)
+        local cropBounds = Rectangle(
+          self.spritePos.x+cropOffset.x, self.spritePos.y+cropOffset.y,
+          cropTexelBounds.w*scale, cropTexelBounds.h*scale
+        )
 
         -- bound cropped position such that it doesn't leave the screen
         -- with a max bound of half the width/height
-        -- (a bit weird to put it here but I need the graphics context)
-        local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
-        local h_bound = math.min(body.width/2, cropSize.x)
-        local v_bound = math.min(body.height/2, cropSize.y)
+        --local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
+        local h_bound = math.min(canvasBody.width/2, cropBounds.w)
+        local v_bound = math.min(canvasBody.height/2, cropBounds.h)
 
-        imagePos.x = math.min(imagePos.x, body.x+body.width-h_bound)
-        imagePos.x = math.max(imagePos.x, body.x+h_bound-cropSize.x)
-        imagePos.y = math.min(imagePos.y, body.y+body.height-v_bound)
-        imagePos.y = math.max(imagePos.y, body.y+v_bound-cropSize.y)
+        cropBounds.x = math.min(cropBounds.x, canvasBody.x+canvasBody.width-h_bound) -- left bound
+        cropBounds.x = math.max(cropBounds.x, canvasBody.x+h_bound-cropBounds.w) -- right bound
+        cropBounds.y = math.min(cropBounds.y, canvasBody.y+canvasBody.height-v_bound)-- bottom bound
+        cropBounds.y = math.max(cropBounds.y, canvasBody.y+v_bound-cropBounds.h) -- top bound
 
         -- update sprite pos to match
-        self.spritePos = addPoints(imagePos, offset)
+        self.spritePos = addPoints(cropBounds.origin, cropOffset)
 
-        -- integer rectangle of image on canvas
-        local imageRect = Rectangle(math.floor(imagePos.x), math.floor(imagePos.y), cropSize.x, cropSize.y)
+        -- snap to world pixels
+        cropBounds = Rectangle(math.floor(cropBounds.x), math.floor(cropBounds.y),
+                               math.floor(cropBounds.w), math.floor(cropBounds.h))
 
-        -- Rasterize at a fixed origin before translating, so panning does not
-        -- change the sampling phase used to scale the sprite.
-        -- FIXME: This becomes really expensive when zooming far in, crop to visible portion
-        local scaledImage
-        if cropSize.x > 0 and cropSize.y > 0 then
-          scaledImage = Image(cropSize.x, cropSize.y)
-          scaledImage.context:drawImage(croppedImage, croppedImage.bounds, scaledImage.bounds)
-        end
+        local renderImage = Image(cropTexelBounds.w, cropTexelBounds.h)
         
-        -- draw the pre-scaled image onto the background without resampling
-        if scaledImage then
-          gc:drawImage(scaledImage, scaledImage.bounds, imageRect)
+        -- -- draw checkerboard for transparency
+        local s = 16
+        local rc = renderImage.context
+        -- draw checkerboard
+        for i = cropTexelBounds.x // s, (cropTexelBounds.x + cropTexelBounds.w) // s do
+          for j = cropTexelBounds.y // s, (cropTexelBounds.y + cropTexelBounds.h) // s do
+            if (i + j) % 2 == 0 then
+              rc.color = Color{ gray=128, alpha=255 }
+            else
+              rc.color = Color{ gray=192, alpha=255 }
+            end
+            rc:fillRect(i*s - cropTexelBounds.x, j*s - cropTexelBounds.y, s, s)
+          end
+        end
+
+        -- get image depending on isolating layers and frame
+        if self.isolateLayer then
+          combineLayers(renderImage, app.layer, app.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+        else
+          renderImage:drawSprite(self.sprite, app.frame.frameNumber,
+            Point(-cropTexelBounds.x, -cropTexelBounds.y)
+          )
+        end
+
+        if scale % 1 ~= 0 and scale < 2 then
+          -- Rasterize at a fixed origin before translating, so panning does not
+          -- change the sampling phase used to scale the sprite.
+          local scaledImage = Image(cropBounds.w, cropBounds.h)
+          scaledImage.context:drawImage(renderImage, renderImage.bounds, scaledImage.bounds)
+          
+          if scaledImage then
+            gc:drawImage(scaledImage, scaledImage.bounds, cropBounds)
+          end
+        else
+          gc:drawImage(renderImage, renderImage.bounds, cropBounds)
         end
         
         -- draw border around image
         gc.color = themeColor.editor_sprite_border
-        gc:strokeRect(imageRect.x-1, imageRect.y-1, imageRect.width+2, imageRect.height+2)
+        gc:strokeRect(cropBounds.x-1, cropBounds.y-1, cropBounds.width+2, cropBounds.height+2)
 
         -- draw line below border
         gc.color = themeColor.editor_sprite_bottom_border
         gc:beginPath()
-        gc:moveTo(imageRect.x-1, imageRect.y + imageRect.height+1)
-        gc:lineTo(imageRect.x + imageRect.width, imageRect.y + imageRect.height+1)
+        gc:moveTo(cropBounds.x-1, cropBounds.y + cropBounds.height+1)
+        gc:lineTo(cropBounds.x + cropBounds.width, cropBounds.y + cropBounds.height+1)
         gc:stroke()
 
+        -- debug text
+        -- gc.color = Color{gray=255,alpha=100}
+        -- gc:fillRect(0,gc.height-50,150,50)
+        -- gc.color = Color{r=0,g=0,b=0,a=255}
+        -- gc:fillText("Scale  : " .. tostring(scale), 5, gc.height - 50)
+        -- gc:fillText("Ren  : (" .. tostring(cropBounds.x) .. ", " .. tostring(cropBounds.y) .. ", " .. tostring(cropBounds.w) .. ", " .. tostring(cropBounds.h) .. ")", 5, gc.height - 40)
+        -- gc:fillText("RenT : (" .. tostring(cropTexelBounds.x) .. ", " .. tostring(cropTexelBounds.y) .. ", " .. tostring(cropTexelBounds.w).. ", " .. tostring(cropTexelBounds.h) .. ")", 5, gc.height - 30)
+        -- gc:fillText("Crop : (" .. tostring(cropBounds.x) .. ", " .. tostring(cropBounds.y) .. ", " .. tostring(cropBounds.w).. ", " .. tostring(cropBounds.h) .. ")", 5, gc.height - 20)
+        -- gc:fillText("CropT: (" .. tostring(cropTexelBounds.x) .. ", " .. tostring(cropTexelBounds.y) .. ", " .. tostring(cropTexelBounds.w).. ", " .. tostring(cropTexelBounds.h) .. ")", 5, gc.height - 10)
       end
       -- draw border around the preview
       gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
 
-      -- debug text
-      -- gc.color = Color{gray=255,alpha=100}
-      -- gc:fillRect(0,gc.height-50,150,50)
-      -- gc.color = Color{r=0,g=0,b=0,a=255}
-      -- gc:fillText(imageRect.x .. ", " .. imageRect.y .. ", " .. imageRect.width .. ", " .. imageRect.height, 5, gc.height - 40)
-      -- gc:fillText("Sprite Pos: (" .. tostring(self.spritePos.x) .. ", " .. tostring(self.spritePos.y) .. ")", 5, gc.height - 30)
-      -- gc:fillText("ImagPos0: (" .. tostring(imagePoint0.x) .. ", " .. tostring(imagePoint0.y) .. ")", 5, gc.height - 20)
-      -- gc:fillText("ImagPos1: (" .. tostring(imagePoint1.x) .. ", " .. tostring(imagePoint1.y) .. ")", 5, gc.height - 10)
     end,
 
     onmousedown=function(ev)
