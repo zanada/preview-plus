@@ -345,11 +345,11 @@ function Preview:createDialog()
           cropBounds = Rectangle(math.floor(cropBounds.x), math.floor(cropBounds.y),
                                 math.floor(cropBounds.w), math.floor(cropBounds.h))
 
-          local renderImage = Image(cropTexelBounds.w, cropTexelBounds.h)
+          local fullImage = Image(cropTexelBounds.w, cropTexelBounds.h)
           
           -- -- draw checkerboard for transparency
           local s = 16
-          local rc = renderImage.context
+          local rc = fullImage.context
           -- draw checkerboard
           for i = cropTexelBounds.x // s, (cropTexelBounds.x + cropTexelBounds.w) // s do
             for j = cropTexelBounds.y // s, (cropTexelBounds.y + cropTexelBounds.h) // s do
@@ -363,25 +363,27 @@ function Preview:createDialog()
           end
 
           -- get image depending on isolating layers and frame
+          local spriteImage = Image(cropTexelBounds.w, cropTexelBounds.h)
           if self.isolateLayer then
-            combineLayers(renderImage, app.layer, app.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+            combineLayers(spriteImage, app.layer, app.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
           else
-            renderImage:drawSprite(self.sprite, app.frame.frameNumber,
+            spriteImage:drawSprite(self.sprite, app.frame.frameNumber,
               Point(-cropTexelBounds.x, -cropTexelBounds.y)
             )
           end
+          fullImage:drawImage(spriteImage)
 
           if scale % 1 ~= 0 and scale < 2 then
             -- Rasterize at a fixed origin before translating, so panning does not
             -- change the sampling phase used to scale the sprite.
             local scaledImage = Image(cropBounds.w, cropBounds.h)
-            scaledImage.context:drawImage(renderImage, renderImage.bounds, scaledImage.bounds)
+            scaledImage.context:drawImage(fullImage, fullImage.bounds, scaledImage.bounds)
             
             if scaledImage then
               gc:drawImage(scaledImage, scaledImage.bounds, cropBounds)
             end
           else
-            gc:drawImage(renderImage, renderImage.bounds, cropBounds)
+            gc:drawImage(fullImage, fullImage.bounds, cropBounds)
           end
           
           -- draw border around image
