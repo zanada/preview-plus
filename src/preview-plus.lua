@@ -1,81 +1,16 @@
 --- @type table<integer, Preview>
 local previews = {}
 
---- @type integer
-local previewCount = 0
-
----Add two point parameters and return a new point object
----@param a Point
----@param b Point
----@return Point
-local function addPoints(a, b)
-    return Point(a.x + b.x, a.y + b.y)
-end
-
----Add two point parameters and return a new point object
----@param a Point
----@param b Point
----@return Point
-local function subPoints(a, b)
-    return Point(a.x - b.x, a.y - b.y)
-end
-
----Multiply point vector by a scalar
----@param vect Point
----@param scalar number
----@return Point
-local function mulVect(vect, scalar)
-    return Point(vect.x*scalar, vect.y*scalar)
-end
-
----@param t any
----@return table
-local function getKeys(t)
-  local keys = {}
-  for key, value in pairs(t) do
-    table.insert(keys, key)
-  end
-  return keys
-end
-
----convert point to integer point by flooring
----@param point any
-local function floorPoint(point)
-  return   Point(math.floor(point.x), math.floor(point.y))
-end
-
----Draw the flattened image of all layers in the group onto the combined image
----CombinedImage image is assumed to have the dimensions of the full sprite
----@param combinedImage Image
----@param layer Layer
----@param frameNumber integer
----@param offset Point
----@return nil
-local function combineLayers(combinedImage, layer, frameNumber, offset)
-  if not layer.isVisible then return end
-
-  local cel = layer:cel(frameNumber)
-  if not layer.isGroup then
-    if cel then
-      combinedImage:drawImage(cel.image, addPoints(cel.position, offset), math.floor((cel.opacity/255) * layer.opacity), layer.blendMode)
-    end
-    return
-  end
-
-  -- combine child layers, starting from lowest
-  for _, l in ipairs(layer.layers) do
-    combineLayers(combinedImage, l, frameNumber, offset)
-  end
-end
-
+-- Tile modes
 local Tiled = {
   None = 1,
   Both = 2,
   X = 3,
   Y = 4
 }
+local defaultTileMode = Tiled.None
 
---- scales represnted by numerator and denominator
+--- Scales for zooming represnted by numerator and denominator
 ---@type integer[][]
 local zoomScales = {
   { 1,  64 },
@@ -141,10 +76,38 @@ end
 
 local defaultZoomLevel= findClosestZoomLevel(1.0)
 
+-----------------------------------------------------------------------
+-- API related helper functions
+-----------------------------------------------------------------------
+
+---Add two point parameters and return a new point object
+---@param a Point
+---@param b Point
+---@return Point
+local function addPoints(a, b)
+    return Point(a.x + b.x, a.y + b.y)
+end
+
+---Add two point parameters and return a new point object
+---@param a Point
+---@param b Point
+---@return Point
+local function subPoints(a, b)
+    return Point(a.x - b.x, a.y - b.y)
+end
+
+---Multiply point vector by a scalar
+---@param vect Point
+---@param scalar number
+---@return Point
+local function mulVect(vect, scalar)
+    return Point(vect.x*scalar, vect.y*scalar)
+end
+
 ---Modify dialog widgets without losing the user's current window size or position
 ---@param dialog Dialog
 ---@param modifications table[]
-local function modifyDialogPreservingBounds(dialog, modifications)
+local function modifyDialogKeepBounds(dialog, modifications)
   local bounds = dialog.bounds
   for _, modification in ipairs(modifications) do
     dialog:modify(modification)
@@ -153,35 +116,51 @@ local function modifyDialogPreservingBounds(dialog, modifications)
   dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
 end
 
---- Returns the world coordinate of an image with given position and scale
---- from a coordinate in texel space
---- @param point Point
---- @param imagePos Point
---- @param scale number
---- @return Point
-local function texelToWorldCoord(point, imagePos, scale)
-  return addPoints(mulVect(point, scale), imagePos)
+-----------------------------------------------------------------------
+-- Helpers
+-----------------------------------------------------------------------
+
+---@param t any
+---@return table
+local function getKeys(t)
+  local keys = {}
+  for key, value in pairs(t) do
+    table.insert(keys, key)
+  end
+  return keys
 end
 
---- Returns the texel coordinate of an image with given position and scale
---- from a coordinate in world space
---- @param point Point
---- @param imagePos Point
---- @param scale number
---- @return Point
-local function worldToTexelCoord(point, imagePos, scale)
-  return mulVect(subPoints(point, imagePos), 1/scale)
-end
 
----Clamp a point to be within rectangle
----Modifies point
----@param point any
----@param rect any
+---Draw the flattened image of all layers in the group onto the image
+---@param image Image Image being drawn to
+---@param layer Layer Root layer
+---@param frameNum integer 
+---@param offset Point
 ---@return nil
-local function clampPoint(point, rect)
-  point.x = math.min(math.max(point.x, rect.x), rect.x+rect.w-1)
-  point.y = math.min(math.max(point.y, rect.y), rect.y+rect.h-1)
+local function combineLayers(image, layer, frameNum, offset)
+  if not layer.isVisible then return end
+
+  local cel = layer:cel(frameNum)
+  if not layer.isGroup then
+    if cel then
+      image:drawImage(
+        cel.image,
+        addPoints(cel.position, offset),
+        math.floor((cel.opacity/255) * layer.opacity),
+        layer.blendMode)
+    end
+    return
+  end
+  -- combine child layers, starting from lowest
+  for _, l in ipairs(layer.layers) do
+    combineLayers(image, l, frameNum, offset)
+  end
 end
+
+
+-----------------------------------------------------------------------
+-- Preview Plus object
+-----------------------------------------------------------------------
 
 ---@class Preview
 ---@field dialog Dialog | nil dialog object
@@ -205,7 +184,7 @@ local Preview = {
   pinned=false,
   listeners={},
   spritePos=Point(0,0),
-  zoomLevel=13,
+  zoomLevel=1,
   mouseDragging=false,
   dragPos=Point(0,0),
   lastCanvasSize=Point(0,0),
@@ -213,6 +192,67 @@ local Preview = {
   area=Rectangle(),
   tileMode=1
 }
+
+--- @return Preview
+function Preview:new()
+  -- create preview object
+  local o = {}
+  setmetatable(o, self)
+  self.__index = self
+
+  o.spritePos = Point(10,10)
+  o.zoomLevel = defaultZoomLevel
+  o.sprite = app.sprite
+  o.visible = false
+  o.open = false
+  o.mouseDragging = false
+  o.lastCanvasSize = Point(180,200)
+  o.tileMode = Tiled.None
+
+  o:setArea(app.sprite.bounds)
+  o:createDialog()
+
+  o.listeners = {}
+  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
+  return o
+end
+
+--- @return nil
+function Preview:show()
+  self.dialog:show{wait=false}
+  self.visible = true
+  self.open = true
+  self:repaint()
+end
+
+--- @return nil
+function Preview:updateVisibility()
+  if app.sprite == self.sprite and not self.visible and self.open then
+    self:show()
+    return
+  end
+  -- still open but hide when other sprite is open
+  if app.sprite ~= self.sprite and self.visible and not self.pinned then
+    self.dialog:close()
+    -- open is set to false by default but it is actually still open
+    -- flip open back to true
+    self.open = true
+  end
+end
+
+--- @return nil
+function Preview:repaint()
+  self.dialog:repaint()
+end
+
+--- @return nil
+function Preview:disconnect()
+  for _, listener in pairs(self.listeners) do
+    self.sprite.events:off(listener)
+  end
+end
 
 ---return the current scale according to zoom
 ---@return number
@@ -252,14 +292,14 @@ function Preview:zoomStep(zoomIn, ev)
   return self:zoomTo(newLevel, ev)
 end
 
-
+---Set cropped area to view
+---@param bounds Rectangle
 function Preview:setArea(bounds)
-  if self.area == bounds then return false end
+  if self.area == bounds then return end
   
-  -- center view
+  -- center the view
   local areaCenter = Point(bounds.x+bounds.w/2, bounds.y+bounds.h/2)
   self.spritePos = Point(self.lastCanvasSize.x/2, self.lastCanvasSize.y/2) - mulVect(areaCenter,self:scale())
-  
   self.area = bounds
   if self.dialog then self.dialog:repaint() end
 end
@@ -267,7 +307,6 @@ end
 --- @protected
 --- @return nil
 function Preview:createDialog()
-
   ---@type table<string, Rectangle>
   local areas = {["Canvas"]=self.sprite.bounds}
   -- guard for option update unecessarily resetting area
@@ -289,7 +328,7 @@ function Preview:createDialog()
     focus=false,
     onclick=function()
       local vis = dialog.data["expand_check"]
-      modifyDialogPreservingBounds(dialog, {
+      modifyDialogKeepBounds(dialog, {
         {id="pin_check", visible=vis},
         {id="layer_check", visible=vis},
         {id="zoom_separator", visible=vis},
@@ -599,66 +638,9 @@ function Preview:createDialog()
   table.insert(self.listeners, self.sprite.events:on('change', function(ev) updateAreas() end))
 end
 
---- @return Preview
-function Preview:new()
-  local o = {}   -- create object if user does not provide one
-  setmetatable(o, self)
-  self.__index = self
-
-  o.spritePos = Point(10,10)
-  o.zoomLevel = defaultZoomLevel
-  o.sprite = app.sprite
-  o.visible = false
-  o.open = false
-  o.mouseDragging = false
-  o.lastCanvasSize = Point(180,200)
-  o.tileMode = Tiled.None
-
-  o:setArea(app.sprite.bounds)
-  o:createDialog()
-  o.listeners = {}
-  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
-  table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
-  table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
-  return o
-end
-
---- @return nil
-function Preview:show()
-  self.dialog:show{wait=false}
-  self.visible = true
-  self.open = true
-  self:repaint()
-end
-
---- @return nil
-function Preview:updateVisibility()
-  if app.sprite == self.sprite and not self.visible and self.open then
-    self:show()
-    return
-  end
-  -- still open but hide when other sprite is open
-  if app.sprite ~= self.sprite and self.visible and not self.pinned then
-    self.dialog:close()
-    -- open is set to false by default but it is actuall still open
-    -- flip open back to true
-    self.open = true
-  end
-end
-
---- @param ev any
---- @return nil
-function Preview:repaint(ev)
-  self.dialog:repaint()
-end
-
---- @return nil
-function Preview:disconnect()
-  for _, listener in pairs(self.listeners) do
-    self.sprite.events:off(listener)
-  end
-end
-
+-----------------------------------------------------------------------
+-- Manage Previews
+-----------------------------------------------------------------------
 
 ---@return Preview | nil
 local function GetCurrentPreview()
@@ -669,19 +651,22 @@ end
 ---@return boolean
 local function CurrentPreviewOpen()
   local preview = GetCurrentPreview()
-  
   if preview ~= nil then
     return preview.visible
   end
-
   return false
 end
 
---- @param sprite Sprite
 --- @return nil
-local function TogglePreview(sprite)
+local function ToggleCurrentPreview()
+  local sprite = app.sprite
+  if sprite == nil then 
+    app.alert("No active sprite")
+    return
+  end
 
   local preview = GetCurrentPreview()
+  -- Toggle existing preview
   if preview then
     if preview.visible then
       preview.dialog:close()
@@ -690,24 +675,11 @@ local function TogglePreview(sprite)
     end
     return
   end
-
   -- create preview if none exists
   preview = Preview:new()
-  previewCount = previewCount + 1
   previews[sprite["id"]] = preview
 
   preview:show()
-end
-
---- @return nil
-local function ToggleCurrentPreview()
-  local sprite = app.sprite
-  if sprite == nil then 
-    app.alert("No active sprite") 
-    return
-  end
-
-  TogglePreview(sprite)
 end
 
 local siteListener
@@ -721,28 +693,18 @@ local function appSiteChanged()
   end
 end
 
-
 function init(plugin)
   if not app.isUIAvailable then return end
 
-  if plugin.preferences.count == nil then
-    plugin.preferences.count = 0
-  end
-
   siteListener = app.events:on('sitechange', appSiteChanged)
-  --
+  -- Toggle preview for each sprite
   plugin:newCommand{
     id="preview-plus",
     title="Preview Plus",
-    group="view_controls", --"view_new",
-    onclick=function()
-      plugin.preferences.count = plugin.preferences.count+1
-      ToggleCurrentPreview()
-    end,
+    group="view_controls",
+    onclick=function() ToggleCurrentPreview() end,
     onenabled=function() return app.sprite ~= nil end,
-    onchecked=function()
-      return CurrentPreviewOpen()
-    end
+    onchecked=function() return CurrentPreviewOpen() end
   }
 end
 
@@ -751,6 +713,4 @@ function exit(plugin)
   for _, preview in previews do
     preview:disconnect()
   end
-  print("Aseprite is closing my plugin, MyFirstCommand was called "
-        .. plugin.preferences.count .. " times")
 end
