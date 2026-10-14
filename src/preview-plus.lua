@@ -68,6 +68,13 @@ local function combineLayers(combinedImage, layer, frameNumber, offset)
   end
 end
 
+local Tiled = {
+  None = 1,
+  Both = 2,
+  X = 3,
+  Y = 4
+}
+
 --- scales represnted by numerator and denominator
 ---@type integer[][]
 local zoomScales = {
@@ -100,7 +107,6 @@ local zoomScales = {
   { 48, 1  },
   { 64, 1  },
 }
-
 local scalesSize = #zoomScales
 
 ---return scale from index in zoomScales
@@ -190,6 +196,7 @@ end
 ---@field lastCanvasSize Point Last recorded size of preview canvas
 ---@field isolateLayer boolean true if showing just the active layer
 ---@field area Rectangle area of sprite currently shown
+---@field tileMode integer
 local Preview = {
   dialog=nil,
   sprite=nil,
@@ -203,7 +210,8 @@ local Preview = {
   dragPos=Point(0,0),
   lastCanvasSize=Point(0,0),
   isolateLayer=false,
-  area=Rectangle()
+  area=Rectangle(),
+  tileMode=1
 }
 
 ---return the current scale according to zoom
@@ -288,6 +296,8 @@ function Preview:createDialog()
         {id="zoom_slider", visible=vis},
         {id="area_separator", visible=vis},
         {id="area_combo", visible=vis},
+        {id="tile_separator", visible=vis},
+        {id="tile_combo", visible=vis},
       })
     end
   }
@@ -306,44 +316,50 @@ function Preview:createDialog()
       gc:fillRect(0,0,gc.width,gc.height)
 
       if self.sprite then
-        -- body of canvas that is being drawn to (canvas excluding border)
         local scale = self:scale()
-        
-        -- Let: sprite refer to the full sprite
-        --      crop refer to the section of the sprite selected (could be same as sprite)
-        --      size and position refer to canvas pixels unless stated as texels
-        
-        -- TODO: Choose area to crop from
         local cropTexelBounds = self.area
-        --cropTexelBounds.origin = Point(0,0)
         if cropTexelBounds.w > 0 and cropTexelBounds.h > 0 then
-        
           local cropOffset = mulVect(cropTexelBounds.origin, scale)
           local cropBounds = Rectangle(
             self.spritePos.x+cropOffset.x, self.spritePos.y+cropOffset.y,
             cropTexelBounds.w*scale, cropTexelBounds.h*scale
           )
-
+          -- display bounds if tiled
+          local x_tile = (self.tileMode == Tiled.Both or self.tileMode == Tiled.X) and 1 or 0
+          local y_tile = (self.tileMode == Tiled.Both or self.tileMode == Tiled.Y) and 1 or 0
+          local displayTexelBounds = Rectangle(
+            cropTexelBounds.origin.x - x_tile * cropTexelBounds.w,
+            cropTexelBounds.origin.y - y_tile * cropTexelBounds.h,
+            cropTexelBounds.w + x_tile * 2 * cropTexelBounds.w,
+            cropTexelBounds.h + y_tile * 2 * cropTexelBounds.h
+          )
+          local displayOffset = mulVect(displayTexelBounds.origin, scale)
+          local displayBounds = Rectangle(
+            self.spritePos.x+displayOffset.x, self.spritePos.y+displayOffset.y,
+            displayTexelBounds.w*scale, displayTexelBounds.h*scale
+          )
+          
+          -- body of canvas that is being drawn to (canvas excluding border)
           local borderW = 3  -- possibly changes with theme
           local canvasBody = Rectangle(borderW, borderW, gc.width - 2*borderW, gc.height - 2*borderW)
           
           -- bound cropped position such that it doesn't leave the screen
           -- with a max bound of half the width/height
           --local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
-          local h_bound = math.min(canvasBody.width/2, cropBounds.w)
-          local v_bound = math.min(canvasBody.height/2, cropBounds.h)
+          local h_bound = math.min(canvasBody.width/2, displayBounds.w)
+          local v_bound = math.min(canvasBody.height/2, displayBounds.h)
 
-          cropBounds.x = math.min(cropBounds.x, canvasBody.x+canvasBody.width-h_bound) -- left bound
-          cropBounds.x = math.max(cropBounds.x, canvasBody.x+h_bound-cropBounds.w) -- right bound
-          cropBounds.y = math.min(cropBounds.y, canvasBody.y+canvasBody.height-v_bound)-- bottom bound
-          cropBounds.y = math.max(cropBounds.y, canvasBody.y+v_bound-cropBounds.h) -- top bound
+          displayBounds.x = math.min(displayBounds.x, canvasBody.x+canvasBody.width-h_bound) -- left bound
+          displayBounds.x = math.max(displayBounds.x, canvasBody.x+h_bound-displayBounds.w) -- right bound
+          displayBounds.y = math.min(displayBounds.y, canvasBody.y+canvasBody.height-v_bound)-- bottom bound
+          displayBounds.y = math.max(displayBounds.y, canvasBody.y+v_bound-displayBounds.h) -- top bound
 
           -- update sprite pos to match
-          self.spritePos = subPoints(cropBounds.origin, cropOffset)
+          self.spritePos = subPoints(displayBounds.origin, displayOffset)
 
           -- snap to world pixels
-          cropBounds = Rectangle(math.floor(cropBounds.x), math.floor(cropBounds.y),
-                                math.floor(cropBounds.w), math.floor(cropBounds.h))
+          displayBounds = Rectangle(math.floor(displayBounds.x), math.floor(displayBounds.y),
+                                math.floor(displayBounds.w), math.floor(displayBounds.h))
 
           local fullImage = Image(cropTexelBounds.w, cropTexelBounds.h)
           
@@ -373,28 +389,39 @@ function Preview:createDialog()
           end
           fullImage:drawImage(spriteImage)
 
+          -- repeat image base on tiling
+          local displayImage
+          if not x_tile and not y_tile then
+            displayImage = fullImage
+          else
+            displayImage = Image(displayTexelBounds.w, displayTexelBounds.h)
+            for i = 0, x_tile*2 do
+              for j = 0, y_tile*2 do
+                displayImage:drawImage(fullImage, Point(i*fullImage.width, j*fullImage.height))
+              end
+            end
+          end
+
           if scale % 1 ~= 0 and scale < 2 then
             -- Rasterize at a fixed origin before translating, so panning does not
             -- change the sampling phase used to scale the sprite.
-            local scaledImage = Image(cropBounds.w, cropBounds.h)
-            scaledImage.context:drawImage(fullImage, fullImage.bounds, scaledImage.bounds)
+            local scaledImage = Image(displayBounds.w, displayBounds.h)
+            scaledImage.context:drawImage(displayImage, displayImage.bounds, scaledImage.bounds)
             
-            if scaledImage then
-              gc:drawImage(scaledImage, scaledImage.bounds, cropBounds)
-            end
+            gc:drawImage(scaledImage, scaledImage.bounds, displayBounds)
           else
-            gc:drawImage(fullImage, fullImage.bounds, cropBounds)
+            gc:drawImage(displayImage, displayImage.bounds, displayBounds)
           end
           
           -- draw border around image
           gc.color = themeColor.editor_sprite_border
-          gc:strokeRect(cropBounds.x-1, cropBounds.y-1, cropBounds.width+2, cropBounds.height+2)
+          gc:strokeRect(displayBounds.x-1, displayBounds.y-1, displayBounds.width+2, displayBounds.height+2)
 
           -- draw line below border
           gc.color = themeColor.editor_sprite_bottom_border
           gc:beginPath()
-          gc:moveTo(cropBounds.x-1, cropBounds.y + cropBounds.height+1)
-          gc:lineTo(cropBounds.x + cropBounds.width, cropBounds.y + cropBounds.height+1)
+          gc:moveTo(displayBounds.x-1, displayBounds.y + displayBounds.height+1)
+          gc:lineTo(displayBounds.x + displayBounds.width, displayBounds.y + displayBounds.height+1)
           gc:stroke()
         end
 
@@ -499,6 +526,28 @@ function Preview:createDialog()
       self:setArea(areas[dialog.data["area_combo"]])
     end
   }
+  :separator{ id="tile_separator",
+    text="Tiled",
+    visible=false,
+  }
+  :combobox{ id="tile_combo",
+    visible=false,
+    option="None",
+    options={"None", "Tiled in Both Axes", "Tiled in X Axis", "Tiled in Y Axis"},
+    onchange=function()
+      local mode = dialog.data["tile_combo"]
+      if mode == "Tiled in Both Axes" then
+        self.tileMode = Tiled.Both
+      elseif mode == "Tiled in X Axis" then
+        self.tileMode = Tiled.X
+      elseif mode == "Tiled in Y Axis" then
+        self.tileMode = Tiled.Y
+      else
+        self.tileMode = Tiled.None
+      end
+      self:repaint()
+    end
+  }
 
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
@@ -540,8 +589,8 @@ function Preview:createDialog()
     dialog.data["area_combo"] = currentArea
     refreshingAreaOptions = false
 
-    if areas[currentArea] == nil then
-      currentArea = "Canvas"
+    if areas[currentArea] == nil or areas[currentArea] ~= self.area then
+      if areas[currentArea] == nil then currentArea = "Canvas" end
       dialog:modify{ id="area_combo", option=currentArea }
       self:setArea(areas[currentArea])
     end
@@ -563,8 +612,9 @@ function Preview:new()
   o.open = false
   o.mouseDragging = false
   o.lastCanvasSize = Point(180,200)
-  o:setArea(app.sprite.bounds)
+  o.tileMode = Tiled.None
 
+  o:setArea(app.sprite.bounds)
   o:createDialog()
   o.listeners = {}
   table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
@@ -578,6 +628,7 @@ function Preview:show()
   self.dialog:show{wait=false}
   self.visible = true
   self.open = true
+  self:repaint()
 end
 
 --- @return nil
