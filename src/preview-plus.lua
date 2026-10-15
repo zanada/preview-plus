@@ -175,6 +175,9 @@ end
 ---@field isolateLayer boolean true if showing just the active layer
 ---@field area Rectangle area of sprite currently shown
 ---@field tileMode integer
+---@field playing boolean if currently playing animation
+---@field frame Frame current frame being displayed
+---@field aTimer Timer|nil animation timer
 local Preview = {
   dialog=nil,
   sprite=nil,
@@ -189,7 +192,8 @@ local Preview = {
   lastCanvasSize=Point(0,0),
   isolateLayer=false,
   area=Rectangle(),
-  tileMode=1
+  tileMode=1,
+  playing=false,
 }
 
 --- @return Preview
@@ -207,15 +211,15 @@ function Preview:new()
   o.mouseDragging = false
   o.lastCanvasSize = Point(180,200)
   o.tileMode = Tiled.None
+  o.playing = false
+  o.frame = app.frame
+  o.aTimer = nil
 
   o:setArea(app.sprite.bounds)
   o:createDialog()
 
   o.listeners = {}
-  table.insert(o.listeners, o.sprite.events:on('change', function(ev) 
-    --print("change")
-    o:repaint(ev) 
-    end))
+  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
@@ -241,6 +245,16 @@ function Preview:updateVisibility()
     -- open is set to false by default but it is actually still open
     -- flip open back to true
     self.open = true
+  end
+end
+
+--- @return nil
+function Preview:updateFrame()
+  if app.sprite ~= self.sprite then
+    return
+  end
+  if not self.playing then
+    self.frame = app.frame
   end
 end
 
@@ -306,6 +320,30 @@ function Preview:setArea(bounds)
   if self.dialog then self.dialog:repaint() end
 end
 
+function Preview:stopPlayback()
+  self.playing = false
+  if self.aTimer then
+    self.aTimer:stop()
+    self.aTimer = nil
+  end
+end
+
+function Preview:startPlayback()
+  assert(self.aTimer == nil)
+  self.aTimer = Timer{
+    interval=self.frame.duration,
+    ontick=function ()
+      self.aTimer:stop()
+      self.aTimer = nil
+      self.frame = self.frame.next or self.sprite.frames[1]
+      self:repaint()
+      self:startPlayback()
+    end
+  }
+  self.aTimer:start()
+end
+
+--- Creates main dialog
 --- @protected
 --- @return nil
 function Preview:createDialog()
@@ -351,6 +389,19 @@ function Preview:createDialog()
       )
     end
   }
+  :check{ id="play_check",
+    text="Playing",
+    selected=false,
+    focus=false,
+    onclick=function()
+      self.playing = dialog.data["play_check"]
+      if self.playing then
+        self:startPlayback()
+      else
+        self:stopPlayback()
+      end
+    end
+  }
   :canvas{ id="myCanvas",
     width=self.lastCanvasSize.x,
     height=self.lastCanvasSize.y,
@@ -369,11 +420,7 @@ function Preview:createDialog()
         local scale = self:scale()
         local cropTexelBounds = self.area
         if cropTexelBounds.w > 0 and cropTexelBounds.h > 0 then
-          local cropOffset = mulVect(cropTexelBounds.origin, scale)
-          local cropBounds = Rectangle(
-            self.spritePos.x+cropOffset.x, self.spritePos.y+cropOffset.y,
-            cropTexelBounds.w*scale, cropTexelBounds.h*scale
-          )
+          
           -- display bounds if tiled
           local x_tile = (self.tileMode == Tiled.Both or self.tileMode == Tiled.X) and 1 or 0
           local y_tile = (self.tileMode == Tiled.Both or self.tileMode == Tiled.Y) and 1 or 0
@@ -431,9 +478,9 @@ function Preview:createDialog()
           -- get image depending on isolating layers and frame
           local spriteImage = Image(cropTexelBounds.w, cropTexelBounds.h)
           if self.isolateLayer then
-            combineLayers(spriteImage, app.layer, app.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+            combineLayers(spriteImage, app.layer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
           else
-            spriteImage:drawSprite(self.sprite, app.frame.frameNumber,
+            spriteImage:drawSprite(self.sprite, self.frame.frameNumber,
               Point(-cropTexelBounds.x, -cropTexelBounds.y)
             )
           end
@@ -631,7 +678,7 @@ function Preview:createDialog()
       end
       return a < b
     end)
-    dialog:modify{ 
+    dialog:modify{
       id="area_combo",
       options=sortedOptions,
       option=currentArea
@@ -699,6 +746,7 @@ local function appSiteChanged()
   for _, preview in pairs(previews) do
     if preview then
       preview:updateVisibility()
+      preview:updateFrame()
       preview:repaint()
     end
   end
