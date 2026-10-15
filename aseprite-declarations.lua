@@ -6,3 +6,6 @@
 ---@class GraphicsContext
 ---@field fillRect fun(graphicsContext: GraphicsContext, x: number, y: number, width: number, height: number) | fun(graphicsContext: GraphicsContext, rectangle: Rectangle)
 ---@field strokeRect fun(graphicsContext: GraphicsContext, x: number, y: number, width: number, height: number) | fun(graphicsContext: GraphicsContext, rectangle: Rectangle)
+
+---@class Dialog
+---@field sizeHint Size

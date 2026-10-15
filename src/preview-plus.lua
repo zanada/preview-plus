@@ -8,7 +8,6 @@ local Tiled = {
   X = 3,
   Y = 4
 }
-local defaultTileMode = Tiled.None
 
 --- Scales for zooming represnted by numerator and denominator
 ---@type integer[][]
@@ -213,7 +212,10 @@ function Preview:new()
   o:createDialog()
 
   o.listeners = {}
-  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('change', function(ev) 
+    --print("change")
+    o:repaint(ev) 
+    end))
   table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
@@ -328,16 +330,25 @@ function Preview:createDialog()
     focus=false,
     onclick=function()
       local vis = dialog.data["expand_check"]
-      modifyDialogKeepBounds(dialog, {
-        {id="pin_check", visible=vis},
-        {id="layer_check", visible=vis},
-        {id="zoom_separator", visible=vis},
-        {id="zoom_slider", visible=vis},
-        {id="area_separator", visible=vis},
-        {id="area_combo", visible=vis},
-        {id="tile_separator", visible=vis},
-        {id="tile_combo", visible=vis},
-      })
+      local bounds = dialog.bounds
+      local preSizeHint = dialog.sizeHint
+      local widgets = {
+        "pin_check",
+        "layer_check",
+        "zoom_separator",
+        "zoom_slider",
+        "area_separator",
+        "area_combo",
+        "tile_separator",
+        "tile_combo",
+      }
+      for _, widget in ipairs(widgets) do
+        dialog:modify({id=widget, visible=vis})
+      end
+
+      dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
+        bounds.height + dialog.sizeHint.h - preSizeHint.h
+      )
     end
   }
   :canvas{ id="myCanvas",
