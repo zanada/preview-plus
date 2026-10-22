@@ -1,4 +1,4 @@
-local Playback = require('playback')
+local Playback = dofile("./playback.lua")
 
 --- @type table<integer, Preview>
 local previews = {}
@@ -180,6 +180,7 @@ end
 ---@field frame Frame current   frame being displayed
 ---@field aTimer Timer|nil      animation timer
 ---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
+---@field ignoreTags boolean    Ignore all tags (except scope tag)
 local Preview = {}
 
 Preview.stopPlayback = Playback.stopPlayback
@@ -204,6 +205,7 @@ function Preview:new()
   o.frame = app.frame
   o.aTimer = nil
   o.scopeTag = nil
+  o.ignoreTags = false
   o.listeners = {}
 
   o:setArea(app.sprite.bounds)
@@ -449,7 +451,8 @@ function Preview:createDialog()
         "tile_combo",
         "anim_separator",
         "anim_combo",
-        "anim_slider"
+        "anim_slider",
+        "ignore_check",
       }
       for _, widget in ipairs(widgets) do
         dialog:modify({id=widget, visible=vis})
@@ -716,6 +719,15 @@ function Preview:createDialog()
   text="Animation",
   visible=false,
   }
+  :check{ id="ignore_check",
+    visible=false,
+    text="Ignore Tags",
+    selected=self.ignoreTags,
+    focus=false,
+    onclick=function()
+      self.ignoreTags = dialog.data["ignore_check"]
+    end
+  }
   :slider{ id="anim_slider",
     visible=false,
     focus=false,
@@ -828,7 +840,11 @@ end
 
 function exit(plugin)
   app.events:off(siteListener)
-  for _, preview in previews do
+  for _, preview in pairs(previews) do
+    preview:stopPlayback()
     preview:disconnect()
+    if preview.dialog then
+      preview.dialog:close()
+    end
   end
 end

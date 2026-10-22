@@ -1,4 +1,5 @@
 local Playback = {}
+local debug = true
 
 function Playback:stopPlayback()
   self.playing = false
@@ -13,6 +14,7 @@ function Playback:startPlayback()
   assert(self.aTimer == nil)
 
   -- initial direction
+  local tForward = 1
   local delta = 1
   -- stack of tags being played
   local activeTags = {} ---@type PlayTag[]
@@ -115,6 +117,7 @@ function Playback:startPlayback()
   end
 
   local function getValidtags()
+    if self.ignoreTags then return {} end
     ---@type Tag[]
     local tags = {}
     for _, tag in ipairs(self.sprite.tags) do
@@ -128,7 +131,7 @@ function Playback:startPlayback()
 
   local function getParentForward()
     if #activeTags == 0 then
-      return delta
+      return tForward
     end
     return activeTags[#activeTags].forward
   end
@@ -165,7 +168,7 @@ function Playback:startPlayback()
         break
       end
     end
-    --printSeen()
+    if debug then printSeen() end
   end
 
   local function addTag(tag, rewind, forward)
@@ -197,13 +200,16 @@ function Playback:startPlayback()
       end
       
       table.insert(activeTags, i, playTag)
-      --printStack()
+      if debug then printStack() end
     else
       table.insert(activeTags, playTag)
-      --printStack()
+      if debug then printStack() end
     end
     table.insert(seenTags,tag)
-    --printSeen()
+    if debug then
+      print("Added tag with forward: "..tostring(playTag.forward))
+      printSeen()
+    end
   end
   
   local handleExitFrame ---@type function
@@ -212,10 +218,14 @@ function Playback:startPlayback()
   ---@param step integer
   ---@param firstTime boolean
   local function handleEnterFrame(step, firstTime)
-    --print("Entering Frame: "..tostring(self.frame.frameNumber))
     self.dialog:modify({id="anim_slider", value=self.frame.frameNumber})
     self:repaint()
-
+    
+    if debug then print("Entering Frame: "..tostring(self.frame.frameNumber)) end
+    if self.ignoreTags then
+      activeTags = {}
+      seenTags = {}
+    end
     local initialFrame = self.frame
     local forward = getParentForward()
     for _, t in ipairs(getValidtags()) do
@@ -267,11 +277,11 @@ function Playback:startPlayback()
         end
         -- delete and remove playTag
         table.remove(activeTags)
-        --printStack()
+        if debug then printStack() end
 
         -- forward of parent
         local parTag = activeTags[#activeTags]
-        local forward = parTag and parTag.forward or delta
+        local forward = parTag and parTag.forward or tForward
         local rewind = parTag and parTag.rewind or false
 
         -- New frame outside of tag
@@ -385,9 +395,9 @@ function Playback:startPlayback()
 
     if self.scopeTag.aniDir == AniDir.PING_PONG or
        self.scopeTag.aniDir == AniDir.PING_PONG_REVERSE then
-      delta = -delta
-      frameNumber = math.max(math.min(boundary + delta, scopeTo), scopeFrom)
-    elseif delta > 0 then
+      tForward = -tForward
+      frameNumber = math.max(math.min(boundary + tForward, scopeTo), scopeFrom)
+    elseif tForward > 0 then
       frameNumber = scopeFrom
     else
       frameNumber = scopeTo
@@ -425,27 +435,27 @@ function Playback:startPlayback()
     
     if self.scopeTag then
       if (self.scopeTag.aniDir == AniDir.FORWARD or self.scopeTag.aniDir == AniDir.REVERSE) then
-        if (delta > 0 and self.frame == self.scopeTag.toFrame) then
+        if (tForward > 0 and self.frame == self.scopeTag.toFrame) then
           self.frame = self.scopeTag.fromFrame
           return false
-        elseif (delta < 0 and self.frame == self.scopeTag.fromFrame) then
+        elseif (tForward < 0 and self.frame == self.scopeTag.fromFrame) then
           self.frame = self.scopeTag.toFrame
           return false
         end
       elseif (self.scopeTag.aniDir == AniDir.PING_PONG or self.scopeTag.aniDir == AniDir.PING_PONG_REVERSE) and
-             ((delta > 0 and self.frame == self.scopeTag.toFrame) or (delta < 0 and self.frame == self.scopeTag.fromFrame)) then
-        delta = -delta
+             ((tForward > 0 and self.frame == self.scopeTag.toFrame) or (tForward < 0 and self.frame == self.scopeTag.fromFrame)) then
+        tForward = -tForward
         local frameNum = math.max(
-          math.min(self.frame.frameNumber + delta, self.scopeTag.toFrame.frameNumber),
+          math.min(self.frame.frameNumber + tForward, self.scopeTag.toFrame.frameNumber),
           self.scopeTag.fromFrame.frameNumber
         )
         self.frame = self.sprite.frames[frameNum]
         return false
       end
-    elseif delta > 0 and self.frame.frameNumber == #self.sprite.frames then
+    elseif tForward > 0 and self.frame.frameNumber == #self.sprite.frames then
       self.frame = self.sprite.frames[1]
       return false
-    elseif delta < 0 and self.frame.frameNumber == 1 then
+    elseif tForward < 0 and self.frame.frameNumber == 1 then
       self.frame = self.sprite.frames[#self.sprite.frames]
       return false
     end
@@ -455,29 +465,29 @@ function Playback:startPlayback()
 
   ---@param step integer
   local function handleMoveFrame(step)
-    self.frame = self.sprite.frames[self.frame.frameNumber + step * getParentForward()]
+    self.frame = self.sprite.frames[self.frame.frameNumber + getParentForward()]
   end
 
   ---@param step integer
   nextFrame = function (step)
     local move = handleExitFrame(step)
-    --print("Exit frame to : "..tostring(self.frame.frameNumber))
+    if debug then print("Exit frame to : "..tostring(self.frame.frameNumber)) end
     if move then
       handleMoveFrame(step)
-      --print("Moved frame to: "..tostring(self.frame.frameNumber))
+      if debug then print("Moved frame to: "..tostring(self.frame.frameNumber)) end
     end
     handleEnterFrame(step, false)
   end
 
-  --print("Playback start ----------------------------------")
+  if debug then print("Playback start ----------------------------------") end
   -- move frame to within scope tag
   if self.scopeTag then
-    delta = delta * getTagForward(self.scopeTag)
+    tForward = tForward * getTagForward(self.scopeTag)
     if not tagContainsFrame(self.scopeTag, self.frame) then
-      self.frame = delta > 0 and self.scopeTag.fromFrame or self.scopeTag.toFrame
+      self.frame = tForward > 0 and self.scopeTag.fromFrame or self.scopeTag.toFrame
     end
   end
-  
+  if debug then print("tForward: "..tostring(tForward)) end
   handleEnterFrame(delta, true)
 end
 
