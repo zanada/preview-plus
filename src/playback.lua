@@ -1,5 +1,5 @@
 local Playback = {}
-local debug = true
+local debug = false
 
 function Playback:stopPlayback()
   self.playing = false

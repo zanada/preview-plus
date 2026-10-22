@@ -3,6 +3,8 @@ local Playback = dofile("./playback.lua")
 --- @type table<integer, Preview>
 local previews = {}
 
+local allFrames = "All frames"
+
 -- Tile modes
 local Tiled = {
   None = 1,
@@ -181,6 +183,7 @@ end
 ---@field aTimer Timer|nil      animation timer
 ---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
 ---@field ignoreTags boolean    Ignore all tags (except scope tag)
+---@field followEditor boolean  Current frame follows current frame in editor
 local Preview = {}
 
 Preview.stopPlayback = Playback.stopPlayback
@@ -315,6 +318,10 @@ function Preview:setArea(bounds)
   if self.dialog then self.dialog:repaint() end
 end
 
+function Preview:updateScope(newScope)
+  self.scopeTag = newScope
+end
+
 ----------------------------------------------------------------------------
 -- Creates main dialog
 ---------------------------------------------------------------------------- 
@@ -380,7 +387,7 @@ function Preview:createDialog()
   local function updateTags()
     tags = {}
     if self.sprite then
-      tags["All Frames"] = 0
+      tags[allFrames] = 0
 
       for _, tag in ipairs(self.sprite.tags) do
         if true then
@@ -402,8 +409,8 @@ function Preview:createDialog()
     refreshingTagOptions = true
     local sortedOptions = getKeys(tags)
     table.sort(sortedOptions, function (a, b)
-      if a == "All Frames" then return true end
-      if b == "All Frames" then return false end
+      if a == allFrames then return true end
+      if b == allFrames then return false end
       return tags[a].fromFrame.frameNumber < tags[b].fromFrame.frameNumber
     end)
     dialog:modify{
@@ -413,10 +420,17 @@ function Preview:createDialog()
     }
     refreshingTagOptions = false
 
-    if tags[currentTag] == nil then
-      dialog:modify{ id="anim_combo", option="All Frames" }
-      self.scopeTag = nil
+    -- check if the current tag no longer exists or has been updated
+    if currentTag == allFrames then return end
+    assert(self.scopeTag ~= nil)
+    for opt, t in pairs(tags) do
+      if self.scopeTag == t then
+        dialog:modify{ id="anim_combo", option=opt }
+        return
+      end
     end
+    dialog:modify{ id="anim_combo", option=allFrames }
+    self:updateScope(nil)
   end
 
   -------------------------------------------------------------------------
@@ -688,7 +702,7 @@ function Preview:createDialog()
     visible=false,
     option="Canvas",
     options=getKeys(areas),
-    onchange=function() 
+    onchange=function()
       if refreshingAreaOptions then return end
       self:setArea(areas[dialog.data["area_combo"]])
     end
@@ -745,14 +759,14 @@ function Preview:createDialog()
   }
   :combobox{ id="anim_combo",
     visible=false,
-    option="All frames",
-    options={"All frames"},
+    option=allFrames,
+    options={allFrames},
     onchange=function()
       if refreshingTagOptions then return end
-      if dialog.data["anim_combo"] == "All Frames" then
+      if dialog.data["anim_combo"] == allFrames then
         self.scopeTag = nil
       else
-        self.scopeTag = tags[dialog.data["anim_combo"]]
+        self:updateScope(tags[dialog.data["anim_combo"]])
       end
     end
   }
