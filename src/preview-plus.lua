@@ -131,7 +131,6 @@ local function getKeys(t)
   return keys
 end
 
-
 ---Draw the flattened image of all layers in the group onto the image
 ---@param image Image Image being drawn to
 ---@param layer Layer Root layer
@@ -164,40 +163,24 @@ end
 -----------------------------------------------------------------------
 
 ---@class Preview
----@field dialog Dialog | nil dialog object
----@field sprite Sprite | nil reference to sprite it displays
----@field listeners integer[] list of sprite listener ids
----@field visible boolean true if currently visible
----@field open boolean true if toggled on, whether or not currently visible
----@field spritePos Point Position of the origin of sprite within the preview window
----@field zoomLevel integer index on the zoom_scales array
+---@field dialog Dialog | nil   dialog object
+---@field sprite Sprite | nil   reference to sprite it displays
+---@field listeners integer[]   list of sprite listener ids
+---@field visible boolean       true if currently visible
+---@field open boolean          true if toggled on, whether or not currently visible
+---@field spritePos Point       Position of the origin of sprite within the canvas
+---@field zoomLevel integer     index on the zoom_scales array
 ---@field mouseDragging boolean True if being panned by mouse
----@field dragPos Point Last position of mouse while dragging
----@field lastCanvasSize Point Last recorded size of preview canvas
----@field isolateLayer boolean true if showing just the active layer
----@field area Rectangle area of sprite currently shown
+---@field dragPos Point         Last position of mouse while dragging
+---@field lastCanvasSize Point  Last recorded size of preview canvas
+---@field isolateLayer boolean  true if showing just the active layer
+---@field area Rectangle        area of sprite currently shown
 ---@field tileMode integer
----@field playing boolean if currently playing animation
----@field frame Frame current frame being displayed
----@field aTimer Timer|nil animation timer
----@field scopeTag Tag|nil Current scope for playback, nil means all frames
-local Preview = {
-  dialog=nil,
-  sprite=nil,
-  visible=false,
-  open=false,
-  pinned=false,
-  listeners={},
-  spritePos=Point(0,0),
-  zoomLevel=1,
-  mouseDragging=false,
-  dragPos=Point(0,0),
-  lastCanvasSize=Point(0,0),
-  isolateLayer=false,
-  area=Rectangle(),
-  tileMode=1,
-  playing=false,
-}
+---@field playing boolean       if currently playing animation
+---@field frame Frame current   frame being displayed
+---@field aTimer Timer|nil      animation timer
+---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
+local Preview = {}
 
 Preview.stopPlayback = Playback.stopPlayback
 Preview.startPlayback = Playback.startPlayback
@@ -221,11 +204,11 @@ function Preview:new()
   o.frame = app.frame
   o.aTimer = nil
   o.scopeTag = nil
+  o.listeners = {}
 
   o:setArea(app.sprite.bounds)
   o:createDialog()
 
-  o.listeners = {}
   table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
@@ -330,21 +313,114 @@ function Preview:setArea(bounds)
   if self.dialog then self.dialog:repaint() end
 end
 
---- Creates main dialog
+----------------------------------------------------------------------------
+-- Creates main dialog
+---------------------------------------------------------------------------- 
+
 --- @protected
 --- @return nil
 function Preview:createDialog()
-  ---@type table<string, Rectangle>
-  local areas = {["Canvas"]=self.sprite.bounds}
-  -- guard for option update unecessarily resetting area
+  local dialog
+  -------------------------------------------------------------------------
+  -- Maintain combobox options
+  -------------------------------------------------------------------------
+  local areas = {["Canvas"]=self.sprite.bounds} ---@type table<string, Rectangle>
+  local tags = {["Canvas"]=0}  ---@type table<string, any>
+
+  -- guard for option update unecessarily resetting selection
   local refreshingAreaOptions = false
-  
-  ---@type table<string, any>
-  local tags = {["Canvas"]=0}
-  -- guard for option update unecessarily resetting tag
   local refreshingTagOptions = false
 
-  local dialog = Dialog{
+  local function updateAreas()
+    areas = {}
+    if self.sprite then
+      areas["Canvas"] = self.sprite.bounds
+      if self.sprite.selection and not self.sprite.selection.isEmpty then
+        areas["Selection"] = self.sprite.selection.bounds
+      end
+      for i = #self.sprite.slices, 1, -1 do
+        local name = self.sprite.slices[i].name
+        local count = 1
+        -- avoid name collisions
+        while areas[name] ~= nil do
+          count = count + 1
+          name = self.sprite.slices[i].name .. " (#" .. tostring(count) .. ")"
+        end
+        areas[name] = self.sprite.slices[i].bounds
+      end
+    end
+    local currentArea = dialog.data["area_combo"]
+    
+    refreshingAreaOptions = true
+    local sortedOptions = getKeys(areas)
+    table.sort(sortedOptions, function (a, b)
+      if a == "Canvas" then return true end
+      if a == "Selection" then
+        return b ~= "Canvas"
+      end
+      return a < b
+    end)
+    dialog:modify{
+      id="area_combo",
+      options=sortedOptions,
+      option=currentArea
+    }
+    dialog.data["area_combo"] = currentArea
+    refreshingAreaOptions = false
+
+    if areas[currentArea] == nil or areas[currentArea] ~= self.area then
+      if areas[currentArea] == nil then currentArea = "Canvas" end
+      dialog:modify{ id="area_combo", option=currentArea }
+      self:setArea(areas[currentArea])
+    end
+  end
+
+  local function updateTags()
+    tags = {}
+    if self.sprite then
+      tags["All Frames"] = 0
+
+      for _, tag in ipairs(self.sprite.tags) do
+        if true then
+        -- if self.frame.frameNumber >= tag.fromFrame.frameNumber and
+        --   self.frame.frameNumber <= tag.toFrame.frameNumber then
+          local name = tag.name
+          local count = 1
+          -- avoid name collisions
+          while tags[name] ~= nil do
+            count = count + 1
+            name = tag.name .. " (#" .. tostring(count) .. ")"
+          end
+          tags[name] = tag
+        end
+      end
+    end
+    local currentTag = dialog.data["anim_combo"]
+    
+    refreshingTagOptions = true
+    local sortedOptions = getKeys(tags)
+    table.sort(sortedOptions, function (a, b)
+      if a == "All Frames" then return true end
+      if b == "All Frames" then return false end
+      return tags[a].fromFrame.frameNumber < tags[b].fromFrame.frameNumber
+    end)
+    dialog:modify{
+      id="anim_combo",
+      options=sortedOptions,
+      option=currentTag
+    }
+    refreshingTagOptions = false
+
+    if tags[currentTag] == nil then
+      dialog:modify{ id="anim_combo", option="All Frames" }
+      self.scopeTag = nil
+    end
+  end
+
+  -------------------------------------------------------------------------
+  -- Dialog Setup
+  -------------------------------------------------------------------------
+  dialog = Dialog{
     title="Preview+",
     notitlebar=false,
     onclose=function()
@@ -437,7 +513,7 @@ function Preview:createDialog()
           
           -- bound cropped position such that it doesn't leave the screen
           -- with a max bound of half the width/height
-          --local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
+          -- local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
           local h_bound = math.min(canvasBody.width/2, displayBounds.w)
           local v_bound = math.min(canvasBody.height/2, displayBounds.h)
 
@@ -522,10 +598,6 @@ function Preview:createDialog()
         -- gc:fillRect(0,gc.height-50,150,50)
         -- gc.color = Color{r=0,g=0,b=0,a=255}
         -- gc:fillText("Scale  : " .. tostring(scale), 5, gc.height - 50)
-        -- gc:fillText("Ren  : (" .. tostring(cropBounds.x) .. ", " .. tostring(cropBounds.y) .. ", " .. tostring(cropBounds.w) .. ", " .. tostring(cropBounds.h) .. ")", 5, gc.height - 40)
-        -- gc:fillText("RenT : (" .. tostring(cropTexelBounds.x) .. ", " .. tostring(cropTexelBounds.y) .. ", " .. tostring(cropTexelBounds.w).. ", " .. tostring(cropTexelBounds.h) .. ")", 5, gc.height - 30)
-        -- gc:fillText("Crop : (" .. tostring(cropBounds.x) .. ", " .. tostring(cropBounds.y) .. ", " .. tostring(cropBounds.w).. ", " .. tostring(cropBounds.h) .. ")", 5, gc.height - 20)
-        -- gc:fillText("CropT: (" .. tostring(cropTexelBounds.x) .. ", " .. tostring(cropTexelBounds.y) .. ", " .. tostring(cropTexelBounds.w).. ", " .. tostring(cropTexelBounds.h) .. ")", 5, gc.height - 10)
       end
       -- draw border around the preview
       gc:drawThemeRect('editor_selected', Rectangle(0,0,gc.width,gc.height))
@@ -675,92 +747,6 @@ function Preview:createDialog()
 
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
-
-  local function updateAreas()
-    areas = {}
-    if self.sprite then
-      areas["Canvas"] = self.sprite.bounds
-      if self.sprite.selection and not self.sprite.selection.isEmpty then
-        areas["Selection"] = self.sprite.selection.bounds
-      end
-      for i = #self.sprite.slices, 1, -1 do
-        local name = self.sprite.slices[i].name
-        local count = 1
-        -- avoid name collisions
-        while areas[name] ~= nil do
-          count = count + 1
-          name = self.sprite.slices[i].name .. " (#" .. tostring(count) .. ")"
-        end
-        areas[name] = self.sprite.slices[i].bounds
-      end
-    end
-    local currentArea = dialog.data["area_combo"]
-    
-    refreshingAreaOptions = true
-    local sortedOptions = getKeys(areas)
-    table.sort(sortedOptions, function (a, b)
-      if a == "Canvas" then return true end
-      if a == "Selection" then
-        return b ~= "Canvas"
-      end
-      return a < b
-    end)
-    dialog:modify{
-      id="area_combo",
-      options=sortedOptions,
-      option=currentArea
-    }
-    dialog.data["area_combo"] = currentArea
-    refreshingAreaOptions = false
-
-    if areas[currentArea] == nil or areas[currentArea] ~= self.area then
-      if areas[currentArea] == nil then currentArea = "Canvas" end
-      dialog:modify{ id="area_combo", option=currentArea }
-      self:setArea(areas[currentArea])
-    end
-  end
-
-  local function updateTags()
-    tags = {}
-    if self.sprite then
-      tags["All Frames"] = 0
-
-      for _, tag in ipairs(self.sprite.tags) do
-        if true then
-        -- if self.frame.frameNumber >= tag.fromFrame.frameNumber and
-        --   self.frame.frameNumber <= tag.toFrame.frameNumber then
-          local name = tag.name
-          local count = 1
-          -- avoid name collisions
-          while tags[name] ~= nil do
-            count = count + 1
-            name = tag.name .. " (#" .. tostring(count) .. ")"
-          end
-          tags[name] = tag
-        end
-      end
-    end
-    local currentTag = dialog.data["anim_combo"]
-    
-    refreshingTagOptions = true
-    local sortedOptions = getKeys(tags)
-    table.sort(sortedOptions, function (a, b)
-      if a == "All Frames" then return true end
-      if b == "All Frames" then return false end
-      return tags[a].fromFrame.frameNumber < tags[b].fromFrame.frameNumber
-    end)
-    dialog:modify{
-      id="anim_combo",
-      options=sortedOptions,
-      option=currentTag
-    }
-    refreshingTagOptions = false
-
-    if tags[currentTag] == nil then
-      dialog:modify{ id="anim_combo", option="All Frames" }
-      self.scopeTag = nil
-    end
-  end
 
   updateTags()
   updateAreas()

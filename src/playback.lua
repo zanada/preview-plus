@@ -9,63 +9,14 @@ function Playback:stopPlayback()
 end
 
 function Playback:startPlayback()
+  -- assert that we are not currently playing
   assert(self.aTimer == nil)
+
+  -- initial direction
   local delta = 1
-  ---@type PlayTag[]
-  local activeTags = {}
-  ---@type Tag[]
-  local seenTags = {}
-
-  ---@param tag Tag
-  ---@return boolean
-  local function isTagSeen(tag)
-    assert(tag)
-    for _, seenTag in ipairs(seenTags) do
-      if seenTag == tag then
-        return true
-      end
-    end
-    return false
-  end
-  
-    local function printSeen()
-      local line = "Seen=["
-      for _,tag in ipairs(seenTags) do
-        line = line .. tag.name .. ", "
-      end
-      line = line .. "]"
-      print(line)
-    end
-
-  ---@param playTag PlayTag
-  local function removeTagFromSeen(playTag)
-    assert(playTag)
-    local tag = playTag.tag
-    for _,otherTag in pairs(playTag.removeThese) do
-      for i, seenTag in ipairs(seenTags) do
-        if seenTag == otherTag then
-          table.remove(seenTags, i)
-          break
-        end
-      end
-    end
-    for i, seenTag in ipairs(seenTags) do
-      if seenTag == tag then
-        table.remove(seenTags, i)
-        break
-      end
-    end
-    --printSeen()
-  end
-  
-  local function printStack()
-    local line = "Stack=["
-    for _, tag in ipairs(activeTags) do
-      line = line .. tag.tag.name .. ", "
-    end
-    line = line .. "]"
-    print(line)
-  end
+  -- stack of tags being played
+  local activeTags = {} ---@type PlayTag[]
+  local seenTags = {}   ---@type Tag[]
 
   --- initial direction of tag
   ---@param t Tag
@@ -73,7 +24,7 @@ function Playback:startPlayback()
   local function getTagForward(t)
     return (t.aniDir == AniDir.FORWARD or t.aniDir == AniDir.PING_PONG) and 1 or -1
   end
-  
+
   ---@class PlayTag
   ---@field tag Tag
   ---@field repeats integer|nil nil if infinity
@@ -111,42 +62,34 @@ function Playback:startPlayback()
     return o
   end
 
-  local function addTag(tag, rewind, forward)
+  ---@param tag Tag
+  ---@return boolean
+  local function isTagSeen(tag)
     assert(tag)
-    local playTag = PlayTag:new(tag, forward)
-    --if rewind then print("push "..tag.name.." with rewind") end
-    if rewind then
-      playTag.rewind = true
-
-      assert(#activeTags > 0)
-      local curTag = activeTags[#activeTags]
-      local delayed = curTag --[[@as PlayTag]]
-      while delayed.delayedDelete do
-        delayed = delayed.delayedDelete --[[@as PlayTag]]
+    for _, seenTag in ipairs(seenTags) do
+      if seenTag == tag then
+        return true
       end
-      delayed.delayedDelete = playTag
-      for _, otherTag in ipairs(delayed.removeThese) do
-        table.insert(playTag.removeThese, otherTag)
-      end
-      table.insert(playTag.removeThese, delayed.tag)
-      delayed.removeThese = {}
-
-      local i = #activeTags
-      while i > 1 do
-        if activeTags[i].tag == delayed.tag then
-          break
-        end
-        i = i - 1
-      end
-      
-      table.insert(activeTags, i, playTag)
-      --printStack()
-    else
-      table.insert(activeTags, playTag)
-      --printStack()
     end
-    table.insert(seenTags,tag)
-    --printSeen()
+    return false
+  end
+  
+  local function printSeen()
+    local line = "Seen=["
+    for _,tag in ipairs(seenTags) do
+      line = line .. tag.name .. ", "
+    end
+    line = line .. "]"
+    print(line)
+  end
+
+  local function printStack()
+    local line = "Stack=["
+    for _, tag in ipairs(activeTags) do
+      line = line .. tag.tag.name .. ", "
+    end
+    line = line .. "]"
+    print(line)
   end
 
   ---@param t Tag
@@ -204,10 +147,67 @@ function Playback:startPlayback()
     return playTag.forward > 0 and  playTag.tag.toFrame or playTag.tag.fromFrame
   end
 
-  ---@type function
-  local handleExitFrame
-    ---@type function
-  local nextFrame
+  ---@param playTag PlayTag
+  local function removeTagFromSeen(playTag)
+    assert(playTag)
+    local tag = playTag.tag
+    for _,otherTag in pairs(playTag.removeThese) do
+      for i, seenTag in ipairs(seenTags) do
+        if seenTag == otherTag then
+          table.remove(seenTags, i)
+          break
+        end
+      end
+    end
+    for i, seenTag in ipairs(seenTags) do
+      if seenTag == tag then
+        table.remove(seenTags, i)
+        break
+      end
+    end
+    --printSeen()
+  end
+
+  local function addTag(tag, rewind, forward)
+    assert(tag)
+    local playTag = PlayTag:new(tag, forward)
+    --if rewind then print("push "..tag.name.." with rewind") end
+    if rewind then
+      playTag.rewind = true
+
+      assert(#activeTags > 0)
+      local curTag = activeTags[#activeTags]
+      local delayed = curTag --[[@as PlayTag]]
+      while delayed.delayedDelete do
+        delayed = delayed.delayedDelete --[[@as PlayTag]]
+      end
+      delayed.delayedDelete = playTag
+      for _, otherTag in ipairs(delayed.removeThese) do
+        table.insert(playTag.removeThese, otherTag)
+      end
+      table.insert(playTag.removeThese, delayed.tag)
+      delayed.removeThese = {}
+
+      local i = #activeTags
+      while i > 1 do
+        if activeTags[i].tag == delayed.tag then
+          break
+        end
+        i = i - 1
+      end
+      
+      table.insert(activeTags, i, playTag)
+      --printStack()
+    else
+      table.insert(activeTags, playTag)
+      --printStack()
+    end
+    table.insert(seenTags,tag)
+    --printSeen()
+  end
+  
+  local handleExitFrame ---@type function
+  local nextFrame       ---@type function
 
   ---@param step integer
   ---@param firstTime boolean
@@ -250,7 +250,6 @@ function Playback:startPlayback()
   ---@param step integer
   ---@return boolean
   local function decrementRepeat(step)
-
     while true do
       local continue = false -- flag for emulating continue
       local oldTag = activeTags[#activeTags]
