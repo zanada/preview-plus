@@ -362,16 +362,25 @@ function Preview:startPlayback()
       print(line)
     end
 
-  ---@param tag Tag
-  local function removeTagFromSeen(tag)
-    assert(tag)
+  ---@param playTag PlayTag
+  local function removeTagFromSeen(playTag)
+    assert(playTag)
+    local tag = playTag.tag
+    for _,otherTag in pairs(playTag.removeThese) do
+      for i, seenTag in ipairs(seenTags) do
+        if seenTag == otherTag then
+          table.remove(seenTags, i)
+          break
+        end
+      end
+    end
     for i, seenTag in ipairs(seenTags) do
       if seenTag == tag then
         table.remove(seenTags, i)
         break
       end
     end
-    printSeen()
+    --printSeen()
   end
   
   local function printStack()
@@ -423,13 +432,14 @@ function Preview:startPlayback()
     o.repeats=r
     o.rewind=false
     o.delayedDelete=nil
+    o.removeThese={}
     return o
   end
 
   local function addTag(tag, rewind, forward)
     assert(tag)
     local playTag = PlayTag:new(tag, forward)
-    if rewind then print("push "..tag.name.." with rewind") end
+    --if rewind then print("push "..tag.name.." with rewind") end
     if rewind then
       playTag.rewind = true
 
@@ -455,13 +465,13 @@ function Preview:startPlayback()
       end
       
       table.insert(activeTags, i, playTag)
-      printStack()
+      --printStack()
     else
       table.insert(activeTags, playTag)
-      printStack()
+      --printStack()
     end
     table.insert(seenTags,tag)
-    printSeen()
+    --printSeen()
   end
 
   ---@param t Tag
@@ -527,7 +537,7 @@ function Preview:startPlayback()
   ---@param step integer
   ---@param firstTime boolean
   local function handleEnterFrame(step, firstTime)
-    print("Entering Frame: "..tostring(self.frame.frameNumber))
+    --print("Entering Frame: "..tostring(self.frame.frameNumber))
     self.dialog:modify({id="anim_slider", value=self.frame.frameNumber})
     self:repaint()
 
@@ -556,7 +566,7 @@ function Preview:startPlayback()
         self.aTimer:stop()
         self.aTimer = nil
 
-        nextFrame(delta)
+        nextFrame(step)
       end
     }
     self.aTimer:start()
@@ -565,8 +575,9 @@ function Preview:startPlayback()
   ---@param step integer
   ---@return boolean
   local function decrementRepeat(step)
-    local continue = false -- flag for emulating continue
+
     while true do
+      local continue = false -- flag for emulating continue
       local oldTag = activeTags[#activeTags]
       assert(oldTag)
       if oldTag and (oldTag.repeats == nil or oldTag.repeats > 1) then
@@ -578,11 +589,11 @@ function Preview:startPlayback()
       else
         -- remove tag from seen
         if oldTag.delayedDelete == nil then
-          removeTagFromSeen(oldTag.tag)
+          removeTagFromSeen(oldTag)
         end
         -- delete and remove playTag
         table.remove(activeTags)
-        printStack()
+        --printStack()
 
         -- forward of parent
         local parTag = activeTags[#activeTags]
@@ -593,15 +604,15 @@ function Preview:startPlayback()
         ---@type integer
         local newFrameNum
         if rewind and parTag then
-          print("rewind to ".. parTag.tag.name)
+          --print("rewind to ".. parTag.tag.name)
           newFrameNum = firstTagFrame(parTag).frameNumber
         else
           newFrameNum = step * forward < 0 and
             oldTag.tag.fromFrame.frameNumber-1 or oldTag.tag.toFrame.frameNumber + 1
         end
 
-        if newFrameNum < 0 or newFrameNum > #self.sprite.frames then
-          if newFrameNum < 0 then
+        if newFrameNum < 1 or newFrameNum > #self.sprite.frames then
+          if newFrameNum < 1 then
             if parTag == nil then
               newFrameNum = #self.sprite.frames
             else
@@ -641,11 +652,11 @@ function Preview:startPlayback()
                   if parTag.repeats then parTag.repeats = parTag.repeats - 1 end
                   newFrameNum = parTag.tag.fromFrame.frameNumber
                 else
-                  newFrameNum = 0
+                  newFrameNum = 1
                 end
               end
             else
-              newFrameNum = 0
+              newFrameNum = 1
             end
           end
         end
@@ -672,6 +683,46 @@ function Preview:startPlayback()
     end
   end
 
+  local function handleScopeCrossing(previousFrameNumber)
+    if not self.scopeTag then return false end
+
+    local scopeFrom = self.scopeTag.fromFrame.frameNumber
+    local scopeTo = self.scopeTag.toFrame.frameNumber
+    local frameNumber
+    local boundary
+    if not self.frame then
+      if previousFrameNumber == scopeFrom then
+        boundary = scopeFrom
+      elseif previousFrameNumber == scopeTo then
+        boundary = scopeTo
+      else
+        return false
+      end
+    else
+      frameNumber = self.frame.frameNumber
+      if frameNumber < scopeFrom then
+        boundary = scopeFrom
+      elseif frameNumber > scopeTo then
+        boundary = scopeTo
+      else
+        return false
+      end
+    end
+
+    if self.scopeTag.aniDir == AniDir.PING_PONG or
+       self.scopeTag.aniDir == AniDir.PING_PONG_REVERSE then
+      delta = -delta
+      frameNumber = math.max(math.min(boundary + delta, scopeTo), scopeFrom)
+    elseif delta > 0 then
+      frameNumber = scopeFrom
+    else
+      frameNumber = scopeTo
+    end
+
+    self.frame = self.sprite.frames[frameNumber]
+    return true
+  end
+
   ---@param step integer
   ---@return boolean
   handleExitFrame = function (step)
@@ -680,12 +731,17 @@ function Preview:startPlayback()
       local tag = curTag.tag
       if (tag.aniDir == AniDir.FORWARD or tag.aniDir == AniDir.REVERSE) and
          (step > 0 and self.frame == lastTagFrame(curTag)) then
+        local previousFrameNumber = self.frame.frameNumber
         decrementRepeat(step)
+        handleScopeCrossing(previousFrameNumber)
         return false
       elseif (tag.aniDir == AniDir.PING_PONG or tag.aniDir == AniDir.PING_PONG_REVERSE) and
              self.frame == lastTagFrame(curTag) then
         curTag.forward = -curTag.forward
-        return decrementRepeat(step)
+        local previousFrameNumber = self.frame.frameNumber
+        local move = decrementRepeat(step)
+        if handleScopeCrossing(previousFrameNumber) then return false end
+        return move
       elseif step < 0 and self.frame == firstTagFrame(curTag) then
         self.frame = lastTagFrame(curTag)
         return false
@@ -698,12 +754,12 @@ function Preview:startPlayback()
         if (delta > 0 and self.frame == self.scopeTag.toFrame) then
           self.frame = self.scopeTag.fromFrame
           return false
-        elseif (delta < 0 and self.frame == self.scopeTag.toFrame) then
+        elseif (delta < 0 and self.frame == self.scopeTag.fromFrame) then
           self.frame = self.scopeTag.toFrame
           return false
         end
       elseif (self.scopeTag.aniDir == AniDir.PING_PONG or self.scopeTag.aniDir == AniDir.PING_PONG_REVERSE) and
-             ((delta > 0 and self.frame == self.scopeTag.toFrame) or delta < 0 and self.frame == self.scopeTag.fromFrame) then
+             ((delta > 0 and self.frame == self.scopeTag.toFrame) or (delta < 0 and self.frame == self.scopeTag.fromFrame)) then
         delta = -delta
         local frameNum = math.max(
           math.min(self.frame.frameNumber + delta, self.scopeTag.toFrame.frameNumber),
@@ -731,19 +787,21 @@ function Preview:startPlayback()
   ---@param step integer
   nextFrame = function (step)
     local move = handleExitFrame(step)
-    print("Exit frame to : "..tostring(self.frame.frameNumber))
+    --print("Exit frame to : "..tostring(self.frame.frameNumber))
     if move then
       handleMoveFrame(step)
-      print("Moved frame to: "..tostring(self.frame.frameNumber))
+      --print("Moved frame to: "..tostring(self.frame.frameNumber))
     end
     handleEnterFrame(step, false)
   end
 
-  print("Playback start ----------------------------------")
+  --print("Playback start ----------------------------------")
   -- move frame to within scope tag
-  if self.scopeTag and not tagContainsFrame(self.scopeTag, self.frame) then
+  if self.scopeTag then
     delta = delta * getTagForward(self.scopeTag)
-    self.frame = delta > 0 and self.scopeTag.fromFrame or self.scopeTag.toFrame
+    if not tagContainsFrame(self.scopeTag, self.frame) then
+      self.frame = delta > 0 and self.scopeTag.fromFrame or self.scopeTag.toFrame
+    end
   end
   
   handleEnterFrame(delta, true)
