@@ -1,4 +1,5 @@
 local Playback = dofile("./playback.lua")
+local CustomWidgets = dofile("./custom-buttons.lua")
 
 --- @type table<integer, Preview>
 local previews = {}
@@ -358,7 +359,7 @@ end
 --- @protected
 --- @return nil
 function Preview:createDialog()
-  local dialog
+  local dlg
   -------------------------------------------------------------------------
   -- Maintain combobox options
   -------------------------------------------------------------------------
@@ -371,10 +372,13 @@ function Preview:createDialog()
 
   local function updateAreas()
     areas = {}
+    local keys = {}
     if self.sprite then
       areas["Canvas"] = self.sprite.bounds
+      table.insert(keys, "Canvas")
       if self.sprite.selection and not self.sprite.selection.isEmpty then
         areas["Selection"] = self.sprite.selection.bounds
+        table.insert(keys, "Selection")
       end
       for i = #self.sprite.slices, 1, -1 do
         local name = self.sprite.slices[i].name
@@ -385,46 +389,52 @@ function Preview:createDialog()
           name = self.sprite.slices[i].name .. " (#" .. tostring(count) .. ")"
         end
         areas[name] = self.sprite.slices[i].bounds
+        table.insert(keys, name)
       end
     end
-    local currentArea = dialog.data["area_combo"]
+    local currentArea = dlg.data["area_combo"]
     
     refreshingAreaOptions = true
-    local sortedOptions = getKeys(areas)
+    local sortedOptions = keys
     table.sort(sortedOptions, function (a, b)
-      if a == "Canvas" then return true end
-      if a == "Selection" then
-        return b ~= "Canvas"
-      end
-      return a < b
+      local ok, res = pcall(function ()
+        if a == b then return false end
+        if a == "Canvas" then return true end
+        if b == "Canvas" then return false end
+        if a == "Selection" then return true end
+        if b == "Selection" then return false end
+        return a < b
+      end)
+      if ok then return res
+      else return false end
     end)
-    dialog:modify{
+    dlg:modify{
       id="area_combo",
       options=sortedOptions,
       option=currentArea
     }
-    dialog.data["area_combo"] = currentArea
+    dlg.data["area_combo"] = currentArea
     refreshingAreaOptions = false
 
     if areas[currentArea] == nil or areas[currentArea] ~= self.area then
       if areas[currentArea] == nil then currentArea = "Canvas" end
-      dialog:modify{ id="area_combo", option=currentArea }
+      dlg:modify{ id="area_combo", option=currentArea }
       self:setArea(areas[currentArea])
     end
   end
 
   local function updateScopeCombo()
     if self.scopeTag == nil then
-      dialog:modify{ id="anim_combo", option=allFrames }
+      dlg:modify{ id="anim_combo", option=allFrames }
       return
     end
     for opt, t in pairs(tags) do
       if self.scopeTag == t then
-        dialog:modify{ id="anim_combo", option=opt }
+        dlg:modify{ id="anim_combo", option=opt }
         return
       end
     end
-    dialog:modify{ id="anim_combo", option=allFrames }
+    dlg:modify{ id="anim_combo", option=allFrames }
   end
 
   local function updateTags()
@@ -447,7 +457,7 @@ function Preview:createDialog()
         end
       end
     end
-    local currentTag = dialog.data["anim_combo"]
+    local currentTag = dlg.data["anim_combo"]
     
     refreshingTagOptions = true
     local sortedOptions = getKeys(tags)
@@ -456,7 +466,7 @@ function Preview:createDialog()
       if b == allFrames then return false end
       return tags[a].fromFrame.frameNumber < tags[b].fromFrame.frameNumber
     end)
-    dialog:modify{
+    dlg:modify{
       id="anim_combo",
       options=sortedOptions,
       option=currentTag
@@ -470,7 +480,7 @@ function Preview:createDialog()
   -------------------------------------------------------------------------
   -- Dialog Setup
   -------------------------------------------------------------------------
-  dialog = Dialog{
+  dlg = Dialog{
     title="Preview+",
     notitlebar=false,
     onclose=function()
@@ -479,7 +489,7 @@ function Preview:createDialog()
     end
   }
 
-  dialog
+  dlg
   :canvas{ id="myCanvas",
     width=self.lastCanvasSize.x,
     height=self.lastCanvasSize.y,
@@ -615,13 +625,13 @@ function Preview:createDialog()
       --dialog:modify{id="center", text="down"}
       self.mouseDragging = true
       self.dragPos = Point(ev.x, ev.y)
-      dialog:modify{ id="myCanvas", mousecursor=MouseCursor.GRABBING }
+      dlg:modify{ id="myCanvas", mousecursor=MouseCursor.GRABBING }
     end,
 
     onmouseup=function(ev)
       --dialog:modify{id="center", text="up"} -- resets size for some reason
       self.mouseDragging = false
-      dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
+      dlg:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
     end,
 
     onmousemove=function (ev)
@@ -648,14 +658,25 @@ function Preview:createDialog()
       end
     end
   }
-  :check{ id="expand_check",
+  dlg:newrow()
+  CustomWidgets:buttonRow{
+    dlg=dlg,
+    gap=2,
+    widgetParams={
+      {icon="pal_options", iconWidth=4, iconHeight=5, width=13, height=14},
+      {icon="combobox_arrow_right", iconWidth=7, iconHeight=8, width=13, height=14},
+      {icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12, width=13, height=14},
+      {icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13, width=13, height=14},
+    },
+  }
+  dlg:check{ id="expand_check",
     text="Expand",
     selected=false,
     focus=false,
     onclick=function()
-      local vis = dialog.data["expand_check"]
-      local bounds = dialog.bounds
-      local preSizeHint = dialog.sizeHint
+      local vis = dlg.data["expand_check"]
+      local bounds = dlg.bounds
+      local preSizeHint = dlg.sizeHint
       local widgets = {
         "pin_check",
         "layer_check",
@@ -669,11 +690,11 @@ function Preview:createDialog()
         "tabs",
       }
       for _, widget in ipairs(widgets) do
-        dialog:modify({id=widget, visible=vis})
+        dlg:modify({id=widget, visible=vis})
       end
 
-      dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
-        bounds.height + dialog.sizeHint.h - preSizeHint.h
+      dlg.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
+        bounds.height + dlg.sizeHint.h - preSizeHint.h
       )
     end
   }
@@ -682,7 +703,7 @@ function Preview:createDialog()
     selected=false,
     focus=false,
     onclick=function()
-      self.playing = dialog.data["play_check"]
+      self.playing = dlg.data["play_check"]
       if self.playing then
         self:startPlayback()
       else
@@ -697,7 +718,7 @@ function Preview:createDialog()
     focus=false,
     visible=false,
     onclick=function() 
-      self.pinned = dialog.data["pin_check"]
+      self.pinned = dlg.data["pin_check"]
 
       -- case where window should disappear when unpinned
       if not self.pinned then
@@ -711,7 +732,7 @@ function Preview:createDialog()
     focus=false,
     visible=false,
     onclick=function() 
-      self.isolateLayer = dialog.data["layer_check"]
+      self.isolateLayer = dlg.data["layer_check"]
       self:repaint()
     end
   }
@@ -723,7 +744,7 @@ function Preview:createDialog()
     max=scalesSize-defaultZoomLevel,
     value=self.zoomLevel-defaultZoomLevel,
     onchange=function ()
-      self:zoomTo(dialog.data["zoom_slider"] + defaultZoomLevel)
+      self:zoomTo(dlg.data["zoom_slider"] + defaultZoomLevel)
       self:repaint()
     end,
     onrelease=function () end
@@ -736,7 +757,7 @@ function Preview:createDialog()
     options=getKeys(areas),
     onchange=function()
       if refreshingAreaOptions then return end
-      self:setArea(areas[dialog.data["area_combo"]])
+      self:setArea(areas[dlg.data["area_combo"]])
     end
   }
   :combobox{ id="tile_combo",
@@ -745,7 +766,7 @@ function Preview:createDialog()
     option="None",
     options={"None", "Tiled in Both Axes", "Tiled in X Axis", "Tiled in Y Axis"},
     onchange=function()
-      local mode = dialog.data["tile_combo"]
+      local mode = dlg.data["tile_combo"]
       if mode == "Tiled in Both Axes" then
         self.tileMode = Tiled.Both
       elseif mode == "Tiled in X Axis" then
@@ -765,7 +786,7 @@ function Preview:createDialog()
     selected=self.ignoreTags,
     focus=false,
     onclick=function()
-      self.ignoreTags = dialog.data["ignore_check"]
+      self.ignoreTags = dlg.data["ignore_check"]
     end
   }
   :check{ id="follow_check",
@@ -774,7 +795,7 @@ function Preview:createDialog()
     selected=self.followEditor,
     focus=false,
     onclick=function()
-      self.followEditor = dialog.data["follow_check"]
+      self.followEditor = dlg.data["follow_check"]
     end
   }
   :slider{ id="anim_slider",
@@ -788,7 +809,7 @@ function Preview:createDialog()
       if self.playing then
         self:stopPlayback()
       end
-      self.frame = self.sprite.frames[dialog.data["anim_slider"]]
+      self.frame = self.sprite.frames[dlg.data["anim_slider"]]
       self:repaint()
     end,
     onrelease=function () end
@@ -800,10 +821,10 @@ function Preview:createDialog()
     options={allFrames},
     onchange=function()
       if refreshingTagOptions then return end
-      if dialog.data["anim_combo"] == allFrames then
+      if dlg.data["anim_combo"] == allFrames then
         self.scopeTag = nil
       else
-        self:updateScope(tags[dialog.data["anim_combo"]])
+        self:updateScope(tags[dlg.data["anim_combo"]])
       end
     end
   }
@@ -813,8 +834,8 @@ function Preview:createDialog()
     onchange=function () end
   }
 
-  dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
-  self.dialog = dialog
+  dlg:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
+  self.dialog = dlg
 
   self.scopeCallback = updateScopeCombo
   updateTags()

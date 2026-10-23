@@ -9,3 +9,6 @@
 
 ---@class Dialog
 ---@field sizeHint Size
+
+---@class Rectangle
+---@field contains fun(rectangle: Rectangle, otherRectangle: Rectangle) | fun(rectangle:Rectangle, point:Point)
