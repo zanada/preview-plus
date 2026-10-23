@@ -209,7 +209,7 @@ function Preview:new()
   o.frame = app.frame
   o.aTimer = nil
   o.scopeTag = nil
-  o.ignoreTags = false
+  o.ignoreTags = true
   o.followEditor = true
   o.scopeCallback = nil
   o.listeners = {}
@@ -334,7 +334,7 @@ function Preview:setArea(bounds)
   if self.dialog then self.dialog:repaint() end
 end
 
----comment
+---Update the scope tag and restart animation if needed
 ---@param newScope Tag|nil
 function Preview:updateScope(newScope)
   if self.playing then
@@ -363,7 +363,7 @@ function Preview:createDialog()
   -- Maintain combobox options
   -------------------------------------------------------------------------
   local areas = {["Canvas"]=self.sprite.bounds} ---@type table<string, Rectangle>
-  local tags = {["Canvas"]=0}  ---@type table<string, any>
+  local tags =  {["Canvas"]=0}  ---@type table<string, any>
 
   -- guard for option update unecessarily resetting selection
   local refreshingAreaOptions = false
