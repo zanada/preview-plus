@@ -184,6 +184,7 @@ end
 ---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
 ---@field ignoreTags boolean    Ignore all tags (except scope tag)
 ---@field followEditor boolean  Current frame follows current frame in editor
+---@field scopeCallback function Hacky way to update scope selection
 local Preview = {}
 
 Preview.stopPlayback = Playback.stopPlayback
@@ -209,6 +210,8 @@ function Preview:new()
   o.aTimer = nil
   o.scopeTag = nil
   o.ignoreTags = false
+  o.followEditor = true
+  o.scopeCallback = nil
   o.listeners = {}
 
   o:setArea(app.sprite.bounds)
@@ -248,10 +251,23 @@ function Preview:updateFrame()
   if app.sprite ~= self.sprite then
     return
   end
-  if not self.playing then
-    self.frame = app.frame
-    self.dialog:modify({id="anim_slider", max=#self.sprite.frames, value=self.frame.frameNumber})
-    return
+  if self.followEditor then
+    -- find smallest tag currently in
+    local smallest = nil
+    for _, t in ipairs(self.sprite.tags) do
+      if t.fromFrame.frameNumber <= app.frame.frameNumber and
+          app.frame.frameNumber <= t.toFrame.frameNumber and
+          (smallest == nil or t.frames < smallest.frames)  then
+        smallest = t
+      end
+    end
+    if not self.playing or smallest ~= self.scopeTag then
+      -- jump to current frame
+      self.frame = app.frame
+      self.dialog:modify({id="anim_slider", value=self.frame.frameNumber})
+    end
+    self:updateScope(smallest)
+    self.scopeCallback()
   end
   self.dialog:modify({id="anim_slider", max=#self.sprite.frames})
 end
@@ -285,7 +301,7 @@ function Preview:zoomTo(level, ev)
   local oldScale = self:scale()
   self.zoomLevel = level
   self.dialog:modify{id="zoom_slider", value = level-defaultZoomLevel}
-  
+
   -- update sprite position so we zoom on mouse position
   local target = Point(0.5*self.lastCanvasSize.x, 0.5*self.lastCanvasSize.y)
   if ev then target = Point(ev.x, ev.y) end
@@ -318,7 +334,20 @@ function Preview:setArea(bounds)
   if self.dialog then self.dialog:repaint() end
 end
 
+---comment
+---@param newScope Tag|nil
 function Preview:updateScope(newScope)
+  if self.playing then
+    if newScope ~= self.scopeTag or (newScope ~= nil and (
+       app.frame.frameNumber < newScope.fromFrame.frameNumber or
+       app.frame.frameNumber > newScope.toFrame.frameNumber)) then
+      self.scopeTag = newScope
+      -- restart playback
+      self:stopPlayback()
+      self:startPlayback()
+      return
+    end
+  end
   self.scopeTag = newScope
 end
 
@@ -384,6 +413,20 @@ function Preview:createDialog()
     end
   end
 
+  local function updateScopeCombo()
+    if self.scopeTag == nil then
+      dialog:modify{ id="anim_combo", option=allFrames }
+      return
+    end
+    for opt, t in pairs(tags) do
+      if self.scopeTag == t then
+        dialog:modify{ id="anim_combo", option=opt }
+        return
+      end
+    end
+    dialog:modify{ id="anim_combo", option=allFrames }
+  end
+
   local function updateTags()
     tags = {}
     if self.sprite then
@@ -421,16 +464,7 @@ function Preview:createDialog()
     refreshingTagOptions = false
 
     -- check if the current tag no longer exists or has been updated
-    if currentTag == allFrames then return end
-    assert(self.scopeTag ~= nil)
-    for opt, t in pairs(tags) do
-      if self.scopeTag == t then
-        dialog:modify{ id="anim_combo", option=opt }
-        return
-      end
-    end
-    dialog:modify{ id="anim_combo", option=allFrames }
-    self:updateScope(nil)
+    updateScopeCombo()
   end
 
   -------------------------------------------------------------------------
@@ -467,6 +501,7 @@ function Preview:createDialog()
         "anim_combo",
         "anim_slider",
         "ignore_check",
+        "follow_check",
       }
       for _, widget in ipairs(widgets) do
         dialog:modify({id=widget, visible=vis})
@@ -735,11 +770,20 @@ function Preview:createDialog()
   }
   :check{ id="ignore_check",
     visible=false,
-    text="Ignore Tags",
+    text="Ignore Subtags",
     selected=self.ignoreTags,
     focus=false,
     onclick=function()
       self.ignoreTags = dialog.data["ignore_check"]
+    end
+  }
+  :check{ id="follow_check",
+    visible=false,
+    text="Follow Editor",
+    selected=self.followEditor,
+    focus=false,
+    onclick=function()
+      self.followEditor = dialog.data["follow_check"]
     end
   }
   :slider{ id="anim_slider",
@@ -774,11 +818,13 @@ function Preview:createDialog()
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
   self.dialog = dialog
 
+  self.scopeCallback = updateScopeCombo
   updateTags()
   updateAreas()
   table.insert(self.listeners, self.sprite.events:on('change', function(ev)
     updateTags()
     updateAreas() end))
+  self:updateFrame()
 end
 
 -----------------------------------------------------------------------

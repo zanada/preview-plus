@@ -12,6 +12,7 @@ end
 function Playback:startPlayback()
   -- assert that we are not currently playing
   assert(self.aTimer == nil)
+  self.playing = true
 
   -- initial direction
   local tForward = 1
@@ -251,7 +252,12 @@ function Playback:startPlayback()
         self.aTimer:stop()
         self.aTimer = nil
 
-        nextFrame(step)
+        local ok = pcall(nextFrame, step)
+        if not ok then
+          self:stopPlayback()
+          self:startPlayback()
+          return
+        end
       end
     }
     self.aTimer:start()
