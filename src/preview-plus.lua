@@ -31,7 +31,7 @@ local zoomScales = {
   { 2,  3  }, -- 60%
   { 4,  5  }, -- 80%
   { 1,  1  }, -- 100%
-  { 3,  2  }, -- 150%
+  --{ 3,  2  }, -- 150%
   { 2,  1  },
   { 3,  1  },
   { 4,  1  },
@@ -480,51 +480,6 @@ function Preview:createDialog()
   }
 
   dialog
-  :check{ id="expand_check",
-    text="Expand",
-    selected=false,
-    focus=false,
-    onclick=function()
-      local vis = dialog.data["expand_check"]
-      local bounds = dialog.bounds
-      local preSizeHint = dialog.sizeHint
-      local widgets = {
-        "pin_check",
-        "layer_check",
-        "zoom_separator",
-        "zoom_slider",
-        "area_separator",
-        "area_combo",
-        "tile_separator",
-        "tile_combo",
-        "anim_separator",
-        "anim_combo",
-        "anim_slider",
-        "ignore_check",
-        "follow_check",
-      }
-      for _, widget in ipairs(widgets) do
-        dialog:modify({id=widget, visible=vis})
-      end
-
-      dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
-        bounds.height + dialog.sizeHint.h - preSizeHint.h
-      )
-    end
-  }
-  :check{ id="play_check",
-    text="Playing",
-    selected=false,
-    focus=false,
-    onclick=function()
-      self.playing = dialog.data["play_check"]
-      if self.playing then
-        self:startPlayback()
-      else
-        self:stopPlayback()
-      end
-    end
-  }
   :canvas{ id="myCanvas",
     width=self.lastCanvasSize.x,
     height=self.lastCanvasSize.y,
@@ -693,6 +648,49 @@ function Preview:createDialog()
       end
     end
   }
+  :check{ id="expand_check",
+    text="Expand",
+    selected=false,
+    focus=false,
+    onclick=function()
+      local vis = dialog.data["expand_check"]
+      local bounds = dialog.bounds
+      local preSizeHint = dialog.sizeHint
+      local widgets = {
+        "pin_check",
+        "layer_check",
+        "zoom_slider",
+        "area_combo",
+        "tile_combo",
+        "anim_combo",
+        "anim_slider",
+        "ignore_check",
+        "follow_check",
+        "tabs",
+      }
+      for _, widget in ipairs(widgets) do
+        dialog:modify({id=widget, visible=vis})
+      end
+
+      dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
+        bounds.height + dialog.sizeHint.h - preSizeHint.h
+      )
+    end
+  }
+  :check{ id="play_check",
+    text="Playing",
+    selected=false,
+    focus=false,
+    onclick=function()
+      self.playing = dialog.data["play_check"]
+      if self.playing then
+        self:startPlayback()
+      else
+        self:stopPlayback()
+      end
+    end
+  }
+  :newrow()
   :check{ id="pin_check",
     text="Pin Window",
     selected=false,
@@ -709,17 +707,15 @@ function Preview:createDialog()
   }
   :check{ id="layer_check",
     text="Isolate Layer",
-    selected=false,focus=false,
+    selected=false,
+    focus=false,
     visible=false,
     onclick=function() 
       self.isolateLayer = dialog.data["layer_check"]
       self:repaint()
     end
   }
-  :separator{ id="zoom_separator",
-    text="Zoom Level",
-    visible=false,
-  }
+  :tab{ id="zoom_tab", text="Zoom"}
   :slider{ id="zoom_slider",
     visible=false,
     focus=false,
@@ -732,12 +728,10 @@ function Preview:createDialog()
     end,
     onrelease=function () end
   }
-  :separator{ id="area_separator",
-    text="Area",
-    visible=false,
-  }
+  :tab{ id="area_tab", text="Canvas"}
   :combobox{ id="area_combo",
     visible=false,
+    label="Area",
     option="Canvas",
     options=getKeys(areas),
     onchange=function()
@@ -745,12 +739,9 @@ function Preview:createDialog()
       self:setArea(areas[dialog.data["area_combo"]])
     end
   }
-  :separator{ id="tile_separator",
-    text="Tiled",
-    visible=false,
-  }
   :combobox{ id="tile_combo",
     visible=false,
+    label="Tiled",
     option="None",
     options={"None", "Tiled in Both Axes", "Tiled in X Axis", "Tiled in Y Axis"},
     onchange=function()
@@ -767,10 +758,7 @@ function Preview:createDialog()
       self:repaint()
     end
   }
-  :separator{ id="anim_separator",
-  text="Animation",
-  visible=false,
-  }
+  :tab{ id="anim_tab", text="Animation"}
   :check{ id="ignore_check",
     visible=false,
     text="Ignore Subtags",
@@ -791,6 +779,7 @@ function Preview:createDialog()
   }
   :slider{ id="anim_slider",
     visible=false,
+    label="Frame",
     focus=false,
     min=1,
     max=#self.sprite.frames,
@@ -806,6 +795,7 @@ function Preview:createDialog()
   }
   :combobox{ id="anim_combo",
     visible=false,
+    label="Scope",
     option=allFrames,
     options={allFrames},
     onchange=function()
@@ -816,6 +806,11 @@ function Preview:createDialog()
         self:updateScope(tags[dialog.data["anim_combo"]])
       end
     end
+  }
+  :endtabs{ id="tabs",
+    visible = false,
+    selected="sdf",
+    onchange=function () end
   }
 
   dialog:modify{ id="myCanvas", mousecursor=MouseCursor.MOVE }
