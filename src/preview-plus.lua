@@ -683,9 +683,12 @@ function Preview:createDialog()
     end,
 
     onwheel=function(ev)
-      if ev.deltaY == 0 then return end
-      
-      if self:zoomStep(ev.deltaY < 0, ev) then
+      if ev.deltaY ~= 0 then
+        if self:zoomStep(ev.deltaY < 0, ev) then
+          self:repaint()
+        end
+      elseif ev.deltaX ~= 0 then
+        self.spritePos.x = self.spritePos.x - ev.deltaX*10
         self:repaint()
       end
     end
