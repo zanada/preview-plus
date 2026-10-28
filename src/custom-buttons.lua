@@ -5,6 +5,8 @@ local CustomWidgets = {}
 
 local mouse = { position = Point(0, 0), leftClick = false }
 local focusedWidget = nil
+local mouseOverWidget = nil
+local pressedWidget = nil
 
 local IconButton = {
   width = 16,
@@ -12,7 +14,7 @@ local IconButton = {
   bounds = Rectangle(0, 0, 16, 16),
   state = {
     normal = {
-      part = "toolbutton_normal",
+      part = "buttonset_item_normal",
       color = "button_normal_text"
     },
     hot = {
@@ -24,8 +26,12 @@ local IconButton = {
       color = "button_selected_text"
     },
     focused = {
-      part = "toolbutton_last",
+      part = "buttonset_item_focused",
       color = "button_normal_text"
+    },
+    hotFocused = {
+      part = "buttonset_item_hot_focused",
+      color = "button_hot_text"
     }
   },
   icon = "tool_zoom",
@@ -46,6 +52,8 @@ function CustomWidgets:buttonRow(options)
   local dlg = options.dlg
   local gap = options.gap or 3
   local widgetParams = options.widgetParams
+  -- need margin for some mouse over edge cases
+  local margin = options.margin or 1
   assert(dlg)
 
   local minHeight = 5
@@ -55,6 +63,7 @@ function CustomWidgets:buttonRow(options)
     table.insert(widgets, widget)
     minHeight = math.max(minHeight, widget.bounds.h)
   end
+  minHeight = minHeight + margin*2
 
   dlg:canvas {
     id = "canvas",
@@ -65,7 +74,7 @@ function CustomWidgets:buttonRow(options)
       local ctx = ev.context ---@type GraphicsContext
 
       -- Draw each custom widget
-      local pos = Point(0,0)
+      local pos = Point(margin,margin)
       for _, widget in ipairs(widgets) do
         local state = widget.state.normal
         widget.bounds = Rectangle(pos.x, pos.y, widget.bounds.w, widget.bounds.h)
@@ -74,13 +83,18 @@ function CustomWidgets:buttonRow(options)
           state = widget.state.focused
         end
 
-        local isMouseOver = widget.bounds:contains(mouse.position)
+        local isMouseOver = mouseOverWidget == widget --widget.bounds:contains(mouse.position)
 
         if isMouseOver then
-          state = widget.state.hot or state
+          if state == widget.state.focused then
+            state = widget.state.hotFocused or state
+          else
+            state = widget.state.hot or state
+          end
 
           if mouse.leftClick then
             state = widget.state.selected
+            pressedWidget = widget
           end
         end
 
@@ -107,6 +121,15 @@ function CustomWidgets:buttonRow(options)
     end,
     onmousemove = function(ev)
       -- Update the mouse position
+      local isOverWidget = false
+      for _,widget in ipairs(widgets) do
+        if widget.bounds:contains(Point(ev.x,ev.y)) then
+          mouseOverWidget = widget
+          isOverWidget = true
+          break
+        end
+      end
+      if not isOverWidget then mouseOverWidget = nil end
       mouse.position = Point(ev.x, ev.y)
 
       dlg:repaint()
@@ -123,11 +146,12 @@ function CustomWidgets:buttonRow(options)
         for _, widget in ipairs(widgets) do
           local isMouseOver = widget.bounds:contains(mouse.position)
 
-          if isMouseOver then
+          if isMouseOver and widget == pressedWidget then
             widget.onclick()
 
             -- Last clicked widget has focus on it
             focusedWidget = widget
+            mouseOverWidget = nil
           end
         end
       end
@@ -136,6 +160,18 @@ function CustomWidgets:buttonRow(options)
       mouse.leftClick = false
 
       dlg:repaint()
+    end,
+    onkeydown = function(ev)
+      print(ev.key)
+      print(ev.spaceKey)
+      if ev.spaceKey then
+        for _, widget in ipairs(widgets) do
+          if widget == focusedWidget then
+            widget.onclick()
+            break
+          end
+        end
+      end
     end
   }
 end

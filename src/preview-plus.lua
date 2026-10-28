@@ -664,8 +664,8 @@ function Preview:createDialog()
     gap=2,
     widgetParams={
       {icon="pal_options", iconWidth=4, iconHeight=5, width=13, height=14},
-      {icon="combobox_arrow_right", iconWidth=7, iconHeight=8, width=13, height=14},
-      {icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12, width=13, height=14},
+      {icon="combobox_arrow_right", iconWidth=6, iconHeight=8, width=13, height=14},
+      {icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=13, width=13, height=14},
       {icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13, width=13, height=14},
     },
   }
