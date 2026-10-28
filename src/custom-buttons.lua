@@ -7,7 +7,9 @@ local mouse = { position = Point(0, 0), leftClick = false }
 local mouseOverWidget = nil
 local pressedWidget = nil
 
+---@class IconButton
 local IconButton = {
+  id = nil,
   width = 16,
   height = 16,
   bounds = Rectangle(0, 0, 16, 16),
@@ -39,6 +41,7 @@ local IconButton = {
   iconWidth = 16,
   iconHeight = 16,
   recolor=false,
+  rightAlign=false,
   onclick = function() print("Unassigned") end
 }
 IconButton.__index = IconButton
@@ -50,19 +53,29 @@ function IconButton:new(o)
   return o
 end
 
+function CustomWidgets:buttonGroup(widgetParams)
+  local lookup = {}
+  local widgets = {}
+  for _, param in ipairs(widgetParams) do
+    local widget = IconButton:new(param)
+    if param.id then
+      lookup[param.id] = widget
+    end
+    table.insert(widgets, widget)
+  end
+  return {lookup=lookup, widgets=widgets}
+end
+
 function CustomWidgets:buttonRow(options)
   local dlg = options.dlg
   local gap = options.gap or 3
-  local widgetParams = options.widgetParams
+  local widgets = options.widgets ---@type table<any, IconButton>
   -- need margin for some mouse over edge cases
   local margin = options.margin or 1
   assert(dlg)
 
   local minHeight = 5
-  local widgets = {}
-  for _, param in ipairs(widgetParams) do
-    local widget = IconButton:new(param)
-    table.insert(widgets, widget)
+  for _, widget in pairs(widgets) do
     minHeight = math.max(minHeight, widget.bounds.h)
   end
   minHeight = minHeight + margin*2
@@ -76,10 +89,15 @@ function CustomWidgets:buttonRow(options)
       local ctx = ev.context ---@type GraphicsContext
 
       -- Draw each custom widget
-      local pos = Point(margin,margin)
-      for _, widget in ipairs(widgets) do
+      local leftPos = Point(margin,margin)
+      local rightPos = Point(ctx.width - 1 - margin,margin)
+      for _, widget in pairs(widgets) do
         local state = widget.state.normal
-        widget.bounds = Rectangle(pos.x, pos.y, widget.bounds.w, widget.bounds.h)
+        if widget.rightAlign then
+          widget.bounds = Rectangle(rightPos.x-widget.bounds.w, rightPos.y, widget.bounds.w, widget.bounds.h)
+        else
+          widget.bounds = Rectangle(leftPos.x, leftPos.y, widget.bounds.w, widget.bounds.h)
+        end
 
         local isMouseOver = mouseOverWidget == widget --widget.bounds:contains(mouse.position)
 
@@ -128,13 +146,17 @@ function CustomWidgets:buttonRow(options)
           ctx:fillText(widget.text, center.x - size.width / 2,
             center.y - size.height / 2)
         end
-        pos.x = pos.x + widget.bounds.w + gap
+        if widget.rightAlign then
+          rightPos.x = rightPos.x - widget.bounds.w - gap
+        else
+          leftPos.x = leftPos.x + widget.bounds.w + gap
+        end
       end
     end,
     onmousemove = function(ev)
       -- Update the mouse position
       local isOverWidget = false
-      for _,widget in ipairs(widgets) do
+      for _,widget in pairs(widgets) do
         if widget.bounds:contains(Point(ev.x,ev.y)) then
           mouseOverWidget = widget
           isOverWidget = true
@@ -155,7 +177,7 @@ function CustomWidgets:buttonRow(options)
     onmouseup = function(ev)
       -- When releasing left mouse button over a widget, call `onclick` method
       if mouse.leftClick then
-        for _, widget in ipairs(widgets) do
+        for _, widget in pairs(widgets) do
           local isMouseOver = widget.bounds:contains(mouse.position)
 
           if isMouseOver and widget == pressedWidget then

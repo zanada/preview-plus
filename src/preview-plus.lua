@@ -67,7 +67,7 @@ local function findClosestZoomLevel(scale)
 
     local testScale = scaleFromZoomLevel(mid)
     if testScale == scale then
-      return mid 
+      return mid
     end
     if testScale > scale then
       right = mid - 1
@@ -137,7 +137,7 @@ end
 ---Draw the flattened image of all layers in the group onto the image
 ---@param image Image Image being drawn to
 ---@param layer Layer Root layer
----@param frameNum integer 
+---@param frameNum integer
 ---@param offset Point
 ---@return nil
 local function combineLayers(image, layer, frameNum, offset)
@@ -327,7 +327,7 @@ end
 ---@param bounds Rectangle
 function Preview:setArea(bounds)
   if self.area == bounds then return end
-  
+
   -- center the view
   local areaCenter = Point(bounds.x+bounds.w/2, bounds.y+bounds.h/2)
   self.spritePos = Point(self.lastCanvasSize.x/2, self.lastCanvasSize.y/2) - mulVect(areaCenter,self:scale())
@@ -354,7 +354,7 @@ end
 
 ----------------------------------------------------------------------------
 -- Creates main dialog
----------------------------------------------------------------------------- 
+----------------------------------------------------------------------------
 
 --- @protected
 --- @return nil
@@ -393,7 +393,7 @@ function Preview:createDialog()
       end
     end
     local currentArea = dlg.data["area_combo"]
-    
+
     refreshingAreaOptions = true
     local sortedOptions = keys
     table.sort(sortedOptions, function (a, b)
@@ -458,7 +458,7 @@ function Preview:createDialog()
       end
     end
     local currentTag = dlg.data["anim_combo"]
-    
+
     refreshingTagOptions = true
     local sortedOptions = getKeys(tags)
     table.sort(sortedOptions, function (a, b)
@@ -508,7 +508,7 @@ function Preview:createDialog()
         local scale = self:scale()
         local cropTexelBounds = self.area
         if cropTexelBounds.w > 0 and cropTexelBounds.h > 0 then
-          
+
           -- display bounds if tiled
           local x_tile = (self.tileMode == Tiled.Both or self.tileMode == Tiled.X) and 1 or 0
           local y_tile = (self.tileMode == Tiled.Both or self.tileMode == Tiled.Y) and 1 or 0
@@ -523,11 +523,11 @@ function Preview:createDialog()
             self.spritePos.x+displayOffset.x, self.spritePos.y+displayOffset.y,
             displayTexelBounds.w*scale, displayTexelBounds.h*scale
           )
-          
+
           -- body of canvas that is being drawn to (canvas excluding border)
           local borderW = 3  -- possibly changes with theme
           local canvasBody = Rectangle(borderW, borderW, gc.width - 2*borderW, gc.height - 2*borderW)
-          
+
           -- bound cropped position such that it doesn't leave the screen
           -- with a max bound of half the width/height
           -- local cropSize = floorPoint(Point(croppedImage.width * scale, croppedImage.height * scale))
@@ -547,7 +547,7 @@ function Preview:createDialog()
                                 math.floor(displayBounds.w), math.floor(displayBounds.h))
 
           local fullImage = Image(cropTexelBounds.w, cropTexelBounds.h)
-          
+
           -- -- draw checkerboard for transparency
           local s = 16
           local rc = fullImage.context
@@ -592,12 +592,12 @@ function Preview:createDialog()
             -- change the sampling phase used to scale the sprite.
             local scaledImage = Image(displayBounds.w, displayBounds.h)
             scaledImage.context:drawImage(displayImage, displayImage.bounds, scaledImage.bounds)
-            
+
             gc:drawImage(scaledImage, scaledImage.bounds, displayBounds)
           else
             gc:drawImage(displayImage, displayImage.bounds, displayBounds)
           end
-          
+
           -- draw border around image
           gc.color = themeColor.editor_sprite_border
           gc:strokeRect(displayBounds.x-1, displayBounds.y-1, displayBounds.width+2, displayBounds.height+2)
@@ -638,7 +638,7 @@ function Preview:createDialog()
       if self.mouseDragging then
         local newDragPos = Point(ev.x, ev.y)
         self.spritePos = addPoints(
-          self.spritePos, 
+          self.spritePos,
           subPoints(newDragPos, self.dragPos)
         )
         self.dragPos = newDragPos
@@ -659,84 +659,78 @@ function Preview:createDialog()
     end
   }
   dlg:newrow()
+  local customButtons
+  customButtons = CustomWidgets:buttonGroup{
+    -- expand dialog
+    {id="expand_button",
+      icon="pal_options", iconWidth=5, iconHeight=5,
+      width=14, height=15, recolor=true, togglable=true,
+      onclick=function()
+        local vis = customButtons.lookup["expand_button"].selected
+        local bounds = dlg.bounds
+        local preSizeHint = dlg.sizeHint
+        local widgets = {
+          "zoom_slider",
+          "area_combo",
+          "tile_combo",
+          "anim_combo",
+          "anim_slider",
+          "ignore_check",
+          "follow_check",
+          "tabs",
+        }
+        for _, widget in ipairs(widgets) do
+          dlg:modify({id=widget, visible=vis})
+        end
+
+        dlg.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
+          bounds.height + dlg.sizeHint.h - preSizeHint.h
+        )
+      end
+    },
+    -- pin
+    {id="pin_button",
+      icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12,
+      iconSel="timeline_closed_padlock_active",
+      width=14, height=15, togglable=true, onclick=function ()
+        self.pinned = customButtons.lookup["pin_button"].selected
+        -- case where window should disappear when unpinned
+        if not self.pinned then
+          self:updateVisibility()
+        end
+      end
+    },
+    -- isolate layer
+    {id="isolate_button",
+      icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13,
+      iconSel="timeline_closed_eye_active",
+      width=14, height=15, togglable=true, onclick=function()
+        self.isolateLayer = customButtons.lookup["isolate_button"].selected
+        self:repaint()
+      end
+    },
+    -- play animation
+    {id="play_button",
+      icon="combobox_arrow_right", iconWidth=7, iconHeight=8,
+      iconSel="ani_stop", iconSelWidth=5, iconSelHeight=6,
+      recolor=true, width=14, height=15, togglable=true, rightAlign=true,
+      selected=false,
+      onclick=function ()
+        self.playing = customButtons.lookup["play_button"].selected
+        if self.playing then
+          self:startPlayback()
+        else
+          self:stopPlayback()
+        end
+      end
+    },
+  }
   CustomWidgets:buttonRow{
     dlg=dlg,
     gap=2,
-    widgetParams={
-      {icon="pal_options", iconWidth=5, iconHeight=5, width=14, height=15, recolor=true, togglable=true, onclick=function () end},
-      {icon="combobox_arrow_right", iconSel="ani_stop", iconWidth=7, iconHeight=8, iconSelWidth=5, iconSelHeight=6, recolor=true,
-        width=14, height=15, togglable=true, onclick=function () end},
-      {icon="timeline_open_padlock_normal", iconSel="timeline_closed_padlock_active", iconWidth=12, iconHeight=12, width=14, height=15, togglable=true, onclick=function () end},
-      {icon="timeline_open_eye_normal", iconSel="timeline_closed_eye_active", iconWidth=12, iconHeight=13, width=14, height=15, togglable=true, onclick=function() end},
-    },
+    widgets=customButtons.widgets,
   }
-  dlg:check{ id="expand_check",
-    text="Expand",
-    selected=false,
-    focus=false,
-    onclick=function()
-      local vis = dlg.data["expand_check"]
-      local bounds = dlg.bounds
-      local preSizeHint = dlg.sizeHint
-      local widgets = {
-        "pin_check",
-        "layer_check",
-        "zoom_slider",
-        "area_combo",
-        "tile_combo",
-        "anim_combo",
-        "anim_slider",
-        "ignore_check",
-        "follow_check",
-        "tabs",
-      }
-      for _, widget in ipairs(widgets) do
-        dlg:modify({id=widget, visible=vis})
-      end
-
-      dlg.bounds = Rectangle(bounds.x, bounds.y, bounds.width,
-        bounds.height + dlg.sizeHint.h - preSizeHint.h
-      )
-    end
-  }
-  :check{ id="play_check",
-    text="Playing",
-    selected=false,
-    focus=false,
-    onclick=function()
-      self.playing = dlg.data["play_check"]
-      if self.playing then
-        self:startPlayback()
-      else
-        self:stopPlayback()
-      end
-    end
-  }
-  :newrow()
-  :check{ id="pin_check",
-    text="Pin Window",
-    selected=false,
-    focus=false,
-    visible=false,
-    onclick=function() 
-      self.pinned = dlg.data["pin_check"]
-
-      -- case where window should disappear when unpinned
-      if not self.pinned then
-        self:updateVisibility()
-      end
-    end
-  }
-  :check{ id="layer_check",
-    text="Isolate Layer",
-    selected=false,
-    focus=false,
-    visible=false,
-    onclick=function() 
-      self.isolateLayer = dlg.data["layer_check"]
-      self:repaint()
-    end
-  }
+  dlg
   :tab{ id="zoom_tab", text="Zoom"}
   :slider{ id="zoom_slider",
     visible=false,
@@ -869,7 +863,7 @@ end
 --- @return nil
 local function ToggleCurrentPreview()
   local sprite = app.sprite
-  if sprite == nil then 
+  if sprite == nil then
     app.alert("No active sprite")
     return
   end
