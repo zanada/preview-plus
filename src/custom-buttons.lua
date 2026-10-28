@@ -4,7 +4,6 @@
 local CustomWidgets = {}
 
 local mouse = { position = Point(0, 0), leftClick = false }
-local focusedWidget = nil
 local mouseOverWidget = nil
 local pressedWidget = nil
 
@@ -12,31 +11,34 @@ local IconButton = {
   width = 16,
   height = 16,
   bounds = Rectangle(0, 0, 16, 16),
+  togglable= false,
+  selected = false,
   state = {
     normal = {
       part = "buttonset_item_normal",
-      color = "button_normal_text"
+      partSelected = "buttonset_item_active",
+      color = "button_normal_text",
+      colorSel = "button_selected_text"
     },
     hot = {
       part = "toolbutton_hot",
-      color = "button_hot_text"
+      partSelected = "buttonset_item_pushed",
+      color = "button_hot_text",
+      colorSel = "button_selected_text"
     },
     selected = {
       part = "toolbutton_pushed",
-      color = "button_selected_text"
+      color = "button_normal_text",
+      colorSel = "button_selected_text"
     },
-    focused = {
-      part = "buttonset_item_focused",
-      color = "button_normal_text"
-    },
-    hotFocused = {
-      part = "buttonset_item_hot_focused",
-      color = "button_hot_text"
-    }
   },
-  icon = "tool_zoom",
+  icon = nil,
+  iconSel = nil,
+  iconSelWidth = nil,
+  iconSelHeight = nil,
   iconWidth = 16,
   iconHeight = 16,
+  recolor=false,
   onclick = function() print("Unassigned") end
 }
 IconButton.__index = IconButton
@@ -79,36 +81,46 @@ function CustomWidgets:buttonRow(options)
         local state = widget.state.normal
         widget.bounds = Rectangle(pos.x, pos.y, widget.bounds.w, widget.bounds.h)
 
-        if widget == focusedWidget then
-          state = widget.state.focused
-        end
-
         local isMouseOver = mouseOverWidget == widget --widget.bounds:contains(mouse.position)
 
         if isMouseOver then
-          if state == widget.state.focused then
-            state = widget.state.hotFocused or state
-          else
-            state = widget.state.hot or state
-          end
-
+          state = widget.state.hot or state
           if mouse.leftClick then
             state = widget.state.selected
             pressedWidget = widget
           end
         end
 
-        ctx:drawThemeRect(state.part, widget.bounds)
+        ctx:drawThemeRect(widget.selected and state.partSelected or state.part, 
+          widget.bounds
+        )
 
         local center = Point(widget.bounds.x + widget.bounds.width / 2,
           widget.bounds.y + widget.bounds.height / 2)
 
         if widget.icon then
-          -- Assuming default icon size of 16x16 pixels
-          local size = Rectangle(0,0,widget.iconWidth,widget.iconHeight)
-
-          ctx:drawThemeImage(widget.icon, center.x - size.width / 2,
-            center.y - size.height / 2)
+          local size = Rectangle(0,0,
+            widget.selected and widget.iconSelWidth or  widget.iconWidth,
+            widget.selected and widget.iconSelHeight or widget.iconHeight)
+          if widget.recolor then
+            local col = app.theme.color[widget.selected and state.colorSel or state.color]
+            local img = Image(widget.bounds.w, widget.bounds.h)
+            img.context:drawThemeImage(widget.selected and widget.iconSel or widget.icon,
+              center.x - widget.bounds.x - size.width / 2,
+              center.y - widget.bounds.y - size.height / 2)
+            for i = 0,img.width-1 do
+              for j = 0,img.height-1 do
+                if app.pixelColor.rgbaA(img:getPixel(i,j)) ~= 0 then
+                  img:drawPixel(i,j, col.rgbaPixel)
+                end
+              end
+            end
+            ctx:drawImage(img, widget.bounds.x, widget.bounds.y)
+          else
+            ctx:drawThemeImage(widget.selected and widget.iconSel or widget.icon,
+              center.x - size.width / 2,
+              center.y - size.height / 2)
+          end
         elseif widget.text then
           local size = ctx:measureText(widget.text)
 
@@ -147,10 +159,10 @@ function CustomWidgets:buttonRow(options)
           local isMouseOver = widget.bounds:contains(mouse.position)
 
           if isMouseOver and widget == pressedWidget then
+            if widget.togglable then widget.selected = not widget.selected end
             widget.onclick()
 
             -- Last clicked widget has focus on it
-            focusedWidget = widget
             mouseOverWidget = nil
           end
         end
@@ -161,18 +173,6 @@ function CustomWidgets:buttonRow(options)
 
       dlg:repaint()
     end,
-    onkeydown = function(ev)
-      print(ev.key)
-      print(ev.spaceKey)
-      if ev.spaceKey then
-        for _, widget in ipairs(widgets) do
-          if widget == focusedWidget then
-            widget.onclick()
-            break
-          end
-        end
-      end
-    end
   }
 end
 

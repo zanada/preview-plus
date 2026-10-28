@@ -663,10 +663,11 @@ function Preview:createDialog()
     dlg=dlg,
     gap=2,
     widgetParams={
-      {icon="pal_options", iconWidth=4, iconHeight=5, width=13, height=14},
-      {icon="combobox_arrow_right", iconWidth=6, iconHeight=8, width=13, height=14},
-      {icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=13, width=13, height=14},
-      {icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13, width=13, height=14},
+      {icon="pal_options", iconWidth=5, iconHeight=5, width=14, height=15, recolor=true, togglable=true, onclick=function () end},
+      {icon="combobox_arrow_right", iconSel="ani_stop", iconWidth=7, iconHeight=8, iconSelWidth=5, iconSelHeight=6, recolor=true,
+        width=14, height=15, togglable=true, onclick=function () end},
+      {icon="timeline_open_padlock_normal", iconSel="timeline_closed_padlock_active", iconWidth=12, iconHeight=12, width=14, height=15, togglable=true, onclick=function () end},
+      {icon="timeline_open_eye_normal", iconSel="timeline_closed_eye_active", iconWidth=12, iconHeight=13, width=14, height=15, togglable=true, onclick=function() end},
     },
   }
   dlg:check{ id="expand_check",
