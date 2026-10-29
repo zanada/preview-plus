@@ -663,8 +663,8 @@ function Preview:createDialog()
   customButtons = CustomWidgets:buttonGroup{
     -- expand dialog
     {id="expand_button",
-      icon="pal_options", iconWidth=5, iconHeight=5,
-      width=14, height=15, recolor=true, togglable=true,
+      icon="pal_options", iconWidth=4, iconHeight=5,
+      width=13, height=15, recolor=true, togglable=true,
       onclick=function()
         local vis = customButtons.lookup["expand_button"].selected
         local bounds = dlg.bounds
@@ -692,7 +692,7 @@ function Preview:createDialog()
     {id="pin_button",
       icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12,
       iconSel="timeline_closed_padlock_active",
-      width=14, height=15, togglable=true, onclick=function ()
+      width=13, height=15, togglable=true, onclick=function ()
         self.pinned = customButtons.lookup["pin_button"].selected
         -- case where window should disappear when unpinned
         if not self.pinned then
@@ -704,16 +704,16 @@ function Preview:createDialog()
     {id="isolate_button",
       icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13,
       iconSel="timeline_closed_eye_active",
-      width=14, height=15, togglable=true, onclick=function()
+      width=13, height=15, togglable=true, onclick=function()
         self.isolateLayer = customButtons.lookup["isolate_button"].selected
         self:repaint()
       end
     },
     -- play animation
     {id="play_button",
-      icon="combobox_arrow_right", iconWidth=7, iconHeight=8,
-      iconSel="ani_stop", iconSelWidth=5, iconSelHeight=6,
-      recolor=true, width=14, height=15, togglable=true, rightAlign=true,
+      icon="ani_play", iconWidth=4, iconHeight=6,
+      iconSel="ani_stop", iconSelWidth=4, iconSelHeight=6,
+      recolor=true, width=13, height=15, togglable=true, rightAlign=true,
       selected=false,
       onclick=function ()
         self.playing = customButtons.lookup["play_button"].selected
@@ -722,6 +722,15 @@ function Preview:createDialog()
         else
           self:stopPlayback()
         end
+      end
+    },
+    -- center
+    {id="center_button",
+      icon="window_center_icon", iconWidth=4, iconHeight=5,
+      width=13, height=15, rightAlign=true,
+      selected=false,
+      onclick=function ()
+        self.spritePos = subPoints(mulVect(self.lastCanvasSize, 0.5), mulVect(app.editor.scroll, self:scale()))
       end
     },
   }
