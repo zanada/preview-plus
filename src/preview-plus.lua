@@ -715,6 +715,7 @@ function Preview:createDialog()
       iconSel="ani_stop", iconSelWidth=4, iconSelHeight=6,
       recolor=true, width=13, height=15, togglable=true, rightAlign=true,
       selected=false,
+      onenabled=function() return #self.sprite.frames > 1 end,
       onclick=function ()
         self.playing = customButtons.lookup["play_button"].selected
         if self.playing then

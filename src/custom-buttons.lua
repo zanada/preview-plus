@@ -23,16 +23,20 @@ local IconButton = {
       colorSel = "button_selected_text"
     },
     hot = {
-      part = "toolbutton_hot",
+      part = "buttonset_item_hot",
       partSelected = "buttonset_item_pushed",
       color = "button_hot_text",
       colorSel = "button_selected_text"
     },
     selected = {
-      part = "toolbutton_pushed",
+      part = "buttonset_item_pushed",
       color = "button_normal_text",
       colorSel = "button_selected_text"
     },
+    disabled = {
+      part = "buttonset_item_normal",
+      color = "disabled"
+    }
   },
   icon = nil,
   iconSel = nil,
@@ -42,7 +46,8 @@ local IconButton = {
   iconHeight = 16,
   recolor=false,
   rightAlign=false,
-  onclick = function() print("Unassigned") end
+  onclick = function() print("Unassigned") end,
+  onenabled = function() return true end,
 }
 IconButton.__index = IconButton
 
@@ -109,6 +114,10 @@ function CustomWidgets:buttonRow(options)
           end
         end
 
+        if not widget.onenabled() then
+          state = widget.state.disabled
+        end
+
         ctx:drawThemeRect(widget.selected and state.partSelected or state.part, 
           widget.bounds
         )
@@ -157,7 +166,7 @@ function CustomWidgets:buttonRow(options)
       -- Update the mouse position
       local isOverWidget = false
       for _,widget in pairs(widgets) do
-        if widget.bounds:contains(Point(ev.x,ev.y)) then
+        if widget.bounds:contains(Point(ev.x,ev.y)) and widget.onenabled() then
           mouseOverWidget = widget
           isOverWidget = true
           break
@@ -180,7 +189,7 @@ function CustomWidgets:buttonRow(options)
         for _, widget in pairs(widgets) do
           local isMouseOver = widget.bounds:contains(mouse.position)
 
-          if isMouseOver and widget == pressedWidget then
+          if isMouseOver and widget == pressedWidget and widget.onenabled() then
             if widget.togglable then widget.selected = not widget.selected end
             widget.onclick()
 
