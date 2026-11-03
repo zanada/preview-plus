@@ -54,6 +54,15 @@ IconButton.__index = IconButton
 function IconButton:new(o)
   o = o or {}
   setmetatable(o, self)
+  --adjustment for theme sizes
+  local scale = app.theme.dimension.color_bar_buttons_height / 16
+  o.width = o.width and math.floor(o.width * scale) or nil
+  o.height = o.height and  math.floor(o.height * scale) or nil
+  o.iconWidth = o.iconWidth and  math.floor(o.iconWidth * scale) or nil
+  o.iconHeight = o.iconHeight and  math.floor(o.iconHeight * scale) or nil
+  o.iconSelWidth = o.iconSelWidth and  math.floor(o.iconSelWidth * scale) or nil
+  o.iconSelHeight = o.iconSelHeight and  math.floor(o.iconSelHeight * scale) or nil
+
   o.bounds = Rectangle(0,0,o.width,o.height)
   return o
 end

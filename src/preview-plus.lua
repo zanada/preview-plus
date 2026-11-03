@@ -3,6 +3,7 @@ local CustomWidgets = dofile("./custom-buttons.lua")
 
 --- @type table<integer, Preview>
 local previews = {}
+local preview_count = 0
 
 local allFrames = "All frames"
 
@@ -692,6 +693,7 @@ function Preview:createDialog()
     {id="pin_button",
       icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12,
       iconSel="timeline_closed_padlock_active",
+      selected=self.pinned,
       width=13, height=15, togglable=true, onclick=function ()
         self.pinned = customButtons.lookup["pin_button"].selected
         -- case where window should disappear when unpinned
@@ -704,6 +706,7 @@ function Preview:createDialog()
     {id="isolate_button",
       icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13,
       iconSel="timeline_closed_eye_active",
+      selected=self.isolateLayer,
       width=13, height=15, togglable=true, onclick=function()
         self.isolateLayer = customButtons.lookup["isolate_button"].selected
         self:repaint()
@@ -891,6 +894,7 @@ local function ToggleCurrentPreview()
   -- create preview if none exists
   preview = Preview:new()
   previews[sprite["id"]] = preview
+  preview_count = preview_count + 1
 
   preview:show()
 end
@@ -911,14 +915,31 @@ function init(plugin)
   if not app.isUIAvailable then return end
 
   siteListener = app.events:on('sitechange', appSiteChanged)
-  -- Toggle preview for each sprite
-  plugin:newCommand{
-    id="preview-plus",
+
+  plugin:newMenuGroup{
+    id="preview_plus_group",
     title="Preview Plus",
     group="view_controls",
+  }
+  -- Toggle preview for each sprite
+  plugin:newCommand{
+    id="preview_plus",
+    title="Preview Plus",
+    group="preview_plus_group",
     onclick=function() ToggleCurrentPreview() end,
     onenabled=function() return app.sprite ~= nil end,
     onchecked=function() return CurrentPreviewOpen() end
+  }
+  plugin:newMenuSeparator{
+    group="preview_plus_group"
+  }
+  -- Toggle preview for each sprite
+  plugin:newCommand{
+    id="quit_preview_plus",
+    title="Quit Preview Plus",
+    group="preview_plus_group",
+    onclick=function() exit() end,
+    onenabled=function() return preview_count > 0 end
   }
 end
 
@@ -931,4 +952,6 @@ function exit(plugin)
       preview.dialog:close()
     end
   end
+  previews = {}
+  preview_count = 0
 end
