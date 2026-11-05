@@ -2,12 +2,12 @@
   "name": "preview-plus",
   "displayName": "Preview Plus",
   "description": "A preview window that shows selected areas",
-  "version": "0.2",
+  "version": "1.0.0",
   "author": { "name": "Zanada",
               "url": "https://zanada.itch.io/" },
   "contributors": [ ],
   "publisher": "Zanada",
-  "license": "CC-BY-4.0",
+  "license": "MIT",
   "categories": [ "Scripts" ],
   "contributes": {
     "scripts": [

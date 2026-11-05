@@ -1,3 +1,6 @@
+-- Handle playback for the preview
+-- Functionality adapted from Aseprite source code
+
 local Playback = {}
 local debug = false
 
