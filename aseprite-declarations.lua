@@ -1,3 +1,5 @@
+-- declarations to get the editor to stop yelling at me
+
 ---@class ThemeColor
 ---@field editor_face Color
 ---@field editor_sprite_border Color
