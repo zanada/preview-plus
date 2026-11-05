@@ -4,7 +4,7 @@
 
 <h1 align="center">Preview Plus for Aseprite</h1>
 
-<p align="center">An <a href"https://aseprite.org/">Aseprite</a> plugin that adds a preview window with extra functionality</p>
+<p align="center">An <a href="https://aseprite.org/">Aseprite</a> plugin that adds a preview window with extra functionality</p>
 
 I made this to experiment with plugins and make previews more useful for me. I hope other people can find use in it.
 
