@@ -15,6 +15,16 @@ local Tiled = {
   Y = 4
 }
 
+-- Playback speeds
+local speedOptions = {
+  ["0.25x"]=0.25,
+  ["0.5x"]=0.5,
+  ["1x"]=1,
+  ["1.5"]=1.5,
+  ["2x"]=2,
+  ["3x"]=3,
+}
+
 --- Scales for zooming represnted by numerator and denominator
 ---@type integer[][]
 local zoomScales = {
@@ -186,6 +196,7 @@ end
 ---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
 ---@field ignoreTags boolean    Ignore all tags (except scope tag)
 ---@field followEditor boolean  Current frame follows current frame in editor
+---@field speed number          Playback speed multiplier
 ---@field scopeCallback function Hacky way to update scope selection
 local Preview = {}
 
@@ -213,6 +224,7 @@ function Preview:new()
   o.scopeTag = nil
   o.ignoreTags = true
   o.followEditor = true
+  o.speed = 1
   o.scopeCallback = nil
   o.listeners = {}
 
@@ -678,6 +690,7 @@ function Preview:createDialog()
           "anim_slider",
           "ignore_check",
           "follow_check",
+          "speed_combo",
           "tabs",
         }
         for _, widget in ipairs(widgets) do
@@ -834,6 +847,22 @@ function Preview:createDialog()
       else
         self:updateScope(tags[dlg.data["anim_combo"]])
       end
+    end
+  }
+  :combobox{ id="speed_combo",
+    visible=false,
+    label="Speed",
+    option="1x",
+    options={
+      "0.25x",
+      "0.5x",
+      "1x",
+      "1.5x",
+      "2x",
+      "3x",
+    },
+    onchange=function()
+      self.speed = speedOptions[dlg.data["speed_combo"]]
     end
   }
   :endtabs{ id="tabs",

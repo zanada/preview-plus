@@ -247,7 +247,7 @@ function Playback:startPlayback()
     end
 
     self.aTimer = Timer{
-      interval=self.frame.duration,
+      interval=self.frame.duration / self.speed,
       ontick=function ()
         self.aTimer:stop()
         self.aTimer = nil
