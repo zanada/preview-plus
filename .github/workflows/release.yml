@@ -1,0 +1,25 @@
+name: Release
+on: 
+  push:
+    tags:
+    - 'v*'
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Archive Release
+      uses: TheDoctor0/zip-release@0.7.6
+      with:
+        type: 'zip'
+        directory: src
+        filename: ${{format('preview-plus{0}.aseprite-extension',  github.ref_name)}}
+
+    - name: Create Release
+      uses: ncipollo/release-action@v1.20.0
+      with:
+        artifacts: ${{format('preview-plus{0}.aseprite-extension',  github.ref_name)}}
