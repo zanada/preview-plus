@@ -3,6 +3,12 @@ on:
   push:
     tags:
     - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish (for example, v1.0.0)
+        required: true
+        type: string
 jobs:
   release:
     name: Create Release
@@ -12,14 +18,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.tag || github.ref }}
     - name: Archive Release
       uses: TheDoctor0/zip-release@0.7.6
       with:
         type: 'zip'
         directory: src
-        filename: ${{format('preview-plus{0}.aseprite-extension',  github.ref_name)}}
+        filename: ${{ format('preview-plus-{0}.aseprite-extension', inputs.tag || github.ref_name) }}
 
     - name: Create Release
       uses: ncipollo/release-action@v1.20.0
       with:
-        artifacts: ${{format('preview-plus{0}.aseprite-extension',  github.ref_name)}}
+        tag: ${{ inputs.tag || github.ref_name }}
+        artifacts: ${{ format('src/preview-plus-{0}.aseprite-extension', inputs.tag || github.ref_name) }}
+        artifactErrorsFailBuild: true
+        allowUpdates: true
+        replacesArtifacts: true
