@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Flutter Scene" width="220px" src="docs/icon.svg">
+  <img alt="Icon" width="220px" src="docs/icon.svg">
 </p>
 
 <h1 align="center">Preview Plus for Aseprite</h1>
@@ -7,7 +7,7 @@
 <p align="center">An <a href="https://aseprite.org/">Aseprite</a> plugin that adds a preview window with extra functionality</p>
 
 <p align="center">
-<img src="docs/diagram.png" width="250" alt="Diagram">
+<img src="docs/diagram.png" width="350" alt="Diagram">
 </p>
 
 I made this to experiment with plugins and make previews more useful for me. I hope other people can find use in it.
@@ -16,21 +16,21 @@ I made this to experiment with plugins and make previews more useful for me. I h
 * **Display Area** - Choose what part of the canvas (selection or slice) to display in the preview. Useful framing and composition in a larger canvas
 <p align="center">
 <img src="docs/example1.gif"
-width=350 
+width=500 
 alt="Display area example"></img>
 </p>
 
 * **Tiling**- Tile in just the preview window without having to make a separate sprite
 <p align="center">
 <img src="docs/example2.gif"
-width=350 
+width=500 
 alt="Tiling example">
 </p>
 
 * **Isolate layer** - View just the selected layer OR group of layers
 <p align="center">
 <img src="docs/example3.gif"
-width=350 
+width=500 
 alt="Isolate Example">
 </p>
 
@@ -41,7 +41,7 @@ alt="Isolate Example">
   * **Ignore sub tags** - Choose to follow sub tags just like the main editor
 <p align="center">
 <img src="docs/example4.gif"
-width=350 
+width=500 
 alt="Playback example">
 </p>
 
