@@ -50,7 +50,7 @@ alt="Playback example">
 With a sprite open in Aseprite, go to `View > Preview Plus > Preview Plus` to open a new preview window.
 
 ## Installation
-1. Download preview-plus.aseprite-extension from [itch.io]() or from the [latest release](https://github.com/zanada/preview-plus/releases/latest)
+1. Download preview-plus.aseprite-extension from [itch.io](https://zanada.itch.io/preview-plus-for-aseprite) or from the [latest release](https://github.com/zanada/preview-plus/releases/latest)
 2. Double-click the file to install. OR
 1. In Aseprite, Go to `Edit > Preferences > Extensions` and click the `Add Extension` button.
 2. Navigate to and select the downloaded file.
