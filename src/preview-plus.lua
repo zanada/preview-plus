@@ -208,6 +208,8 @@ end
 ---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
 ---@field ignoreTags boolean    Ignore all tags (except scope tag)
 ---@field followEditor boolean  Current frame follows current frame in editor
+---@field layer Layer       Current layer
+---@field layerFollowEditor boolean Current layer follows layer in editor
 ---@field speed number          Playback speed multiplier
 ---@field scopeCallback function Hacky way to update scope selection
 local Preview = {}
@@ -230,6 +232,10 @@ function Preview:new()
   o.mouseDragging = false
   o.lastCanvasSize = Point(180,200)
   o.tileMode = Tiled.None
+
+  o.layerFollowEditor = true
+  o.layer = app.layer
+
   o.playing = false
   o.frame = app.frame
   o.aTimer = nil
@@ -243,7 +249,11 @@ function Preview:new()
   o:setArea(app.sprite.bounds)
   o:createDialog()
 
-  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('change', function(ev)
+      local layerExists = pcall(function() return o.layer.name end)
+      if not layerExists then o.layer = app.layer end
+      o:repaint(ev)
+    end))
   table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
@@ -591,7 +601,11 @@ function Preview:createDialog()
           -- get image depending on isolating layers and frame
           local spriteImage = Image(cropTexelBounds.w, cropTexelBounds.h)
           if self.isolateLayer then
-            combineLayers(spriteImage, app.layer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+            local layer = app.layer
+            if not self.layerFollowEditor then
+              layer = self.layer 
+            end
+            combineLayers(spriteImage, layer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
           else
             spriteImage:drawSprite(self.sprite, self.frame.frameNumber,
               Point(-cropTexelBounds.x, -cropTexelBounds.y)
@@ -698,6 +712,7 @@ function Preview:createDialog()
           "zoom_slider",
           "area_combo",
           "tile_combo",
+          "follow_layer_check",
           "anim_combo",
           "anim_slider",
           "ignore_check",
@@ -812,6 +827,18 @@ function Preview:createDialog()
       self:repaint()
     end
   }
+  :check{ id="follow_layer_check",
+    visible=false,
+    text="Follow Editor",
+    selected=self.layerFollowEditor,
+    focus=false,
+    onclick=function()
+      self.layerFollowEditor = dlg.data["follow_layer_check"]
+      self.layer = app.layer
+      self:repaint()
+    end
+  }
+  :newrow()
   :tab{ id="anim_tab", text="Animation"}
   :check{ id="ignore_check",
     visible=false,
