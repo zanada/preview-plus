@@ -252,6 +252,19 @@ function Preview:new()
   table.insert(o.listeners, o.sprite.events:on('change', function(ev)
       local layerExists = pcall(function() return o.layer.name end)
       if not layerExists then o.layer = app.layer end
+
+      local frameValid = o.frame ~= nil and
+        pcall(function() return o.frame.frameNumber end) and
+        o.frame.frameNumber <= #o.sprite.frames
+      if not frameValid then
+        print("frame killed")
+        o.frame = app.frame
+        o:stopPlayback()
+        o:startPlayback()
+      else
+        print(o.frame.frameNumber)
+      end
+      o:updateFrame()
       o:repaint(ev)
     end))
   table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
