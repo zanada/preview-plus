@@ -257,7 +257,6 @@ function Preview:new()
         pcall(function() return o.frame.frameNumber end) and
         o.frame.frameNumber <= #o.sprite.frames
       if not frameValid then
-        print("frame killed")
         o.frame = app.frame
         o:stopPlayback()
         o:startPlayback()
