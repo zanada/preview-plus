@@ -250,7 +250,7 @@ function Preview:new(c)
   o.zoomLevel = c.zoomLevel or defaultZoomLevel
   o.visible = false
   o.open = false
-  
+
   o.isolateLayer = false
   o.pinned = false
   o.mirrored = false
@@ -265,7 +265,7 @@ function Preview:new(c)
   if c.ignoreTags ~= nil then o.ignoreTags = c.ignoreTags end
   if c.followEditor ~= nil then o.followEditor = c.followEditor end
   if c.followLayer ~= nil then o.followLayer = c.followLayer end
-  
+
   o.mouseDragging = false
   o.lastCanvasSize = c.lastCanvasSize and Point(c.lastCanvasSize.x, c.lastCanvasSize.y) or Point(180,200)
   o.tileMode = c.tileMode or Tiled.None
@@ -859,7 +859,7 @@ function Preview:createDialog()
     --     end
     --   end
     -- },
-    -- filter 
+    -- filter
     {id="filter_button", tooltip="Toggle filter",
       icon="timeline_onionskin", iconWidth=12, iconHeight=12,
       iconSel="timeline_onionskin_active",
@@ -1132,6 +1132,7 @@ local function appSiteChanged()
   end
 end
 
+local quit
 function init(plugin)
   if not app.isUIAvailable then return end
   if plugin.preferences.config == nil then
@@ -1162,12 +1163,12 @@ function init(plugin)
     id="quit_preview_plus",
     title="Quit Preview Plus",
     group="preview_plus_group",
-    onclick=function() exit() end,
+    onclick=function() quit(plugin) end,
     onenabled=function() return preview_count > 0 end
   }
 end
 
-function exit(plugin)
+quit = function (plugin)
   app.events:off(siteListener)
   for _, preview in pairs(previews) do
     -- save preferences
@@ -1201,4 +1202,8 @@ function exit(plugin)
   end
   previews = {}
   preview_count = 0
+end
+
+function exit(plugin)
+  quit(plugin)
 end
