@@ -27,6 +27,19 @@ local Tiled = {
   Y = 4
 }
 
+-- Filter Options
+local Filter = {
+  Grayscale = "Grayscale",
+  Silhouette = "Silhouette"
+}
+local filterOptions = {}
+local filterMap = {}
+for k, v in pairs(Filter) do
+  table.insert(filterOptions, v)
+  filterMap[v] = k
+end
+local defaultSilhouetteCol = Color{gray=50, alpha=255}
+
 -- Playback speeds
 local speedOptions = {
   ["0.25x"]=0.25,
@@ -157,33 +170,6 @@ local function getKeys(t)
   return keys
 end
 
----Draw the flattened image of all layers in the group onto the image
----@param image Image Image being drawn to
----@param layer Layer Root layer
----@param frameNum integer
----@param offset Point
----@return nil
-local function combineLayers(image, layer, frameNum, offset)
-  if not layer.isVisible then return end
-
-  local cel = layer:cel(frameNum)
-  if not layer.isGroup then
-    if cel then
-      image:drawImage(
-        cel.image,
-        addPoints(cel.position, offset),
-        math.floor((cel.opacity/255) * layer.opacity),
-        layer.blendMode)
-    end
-    return
-  end
-  -- combine child layers, starting from lowest
-  for _, l in ipairs(layer.layers) do
-    combineLayers(image, l, frameNum, offset)
-  end
-end
-
-
 -----------------------------------------------------------------------
 -- Preview Plus object
 -----------------------------------------------------------------------
@@ -212,6 +198,10 @@ end
 ---@field layerFollowEditor boolean Current layer follows layer in editor
 ---@field speed number          Playback speed multiplier
 ---@field scopeCallback function Hacky way to update scope selection
+---@field mirrored boolean      if canvas is mirrored
+---@field filter integer        filter mode
+---@field silhouette Color
+---@field filterActive boolean
 local Preview = {}
 
 Preview.stopPlayback = Playback.stopPlayback
@@ -232,6 +222,10 @@ function Preview:new()
   o.mouseDragging = false
   o.lastCanvasSize = Point(180,200)
   o.tileMode = Tiled.None
+  o.mirrored = false
+  o.filter = Filter.Grayscale
+  o.filterActive = false
+  o.silhouette = defaultSilhouetteCol
 
   o.layerFollowEditor = true
   o.layer = app.layer
@@ -260,8 +254,6 @@ function Preview:new()
         o.frame = app.frame
         o:stopPlayback()
         o:startPlayback()
-      else
-        print(o.frame.frameNumber)
       end
       o:updateFrame()
       o:repaint(ev)
@@ -295,6 +287,12 @@ function Preview:updateVisibility()
 end
 
 --- @return nil
+function Preview:updateLayer()
+  if app.sprite ~= self.sprite then return end
+  if self.layerFollowEditor then self.layer = app.layer end
+end
+
+--- @return nil
 function Preview:updateFrame()
   if app.sprite ~= self.sprite then
     return
@@ -323,6 +321,59 @@ end
 --- @return nil
 function Preview:repaint()
   self.dialog:repaint()
+end
+
+---Draw the flattened image of all layers in the group onto the image
+---@param image Image Image being drawn to
+---@param layer Layer|nil Root layer
+---@param frameNum integer
+---@param offset Point
+---@param selectedLayer? boolean true if selected layer or child of it
+---@return nil
+function Preview:combineLayers(image, layer, frameNum, offset, selectedLayer)
+  -- no layer given, draw whole sprite
+  if layer == nil then
+    for _, l in ipairs(self.sprite.layers) do
+      self:combineLayers(image, l, frameNum, offset)
+    end
+    return
+  end
+  if not layer.isVisible then return end
+
+  -- draw cel to image
+  local cel = layer:cel(frameNum)
+  if not layer.isGroup then
+    if cel then
+      -- case for drawing silhouette
+      if self.filterActive and self.filter == Filter.Silhouette and
+         (selectedLayer or layer == self.layer) then
+        local buffer = Image(cel.image.width, cel.image.height)
+        buffer:drawImage(
+          cel.image,
+          Point(0, 0),
+          math.floor((cel.opacity / 255) * layer.opacity)
+        )
+        for it in buffer:pixels() do
+          if app.pixelColor.rgbaA(it()) > 0 then
+            it(self.silhouette.rgbaPixel)
+          end
+        end
+
+        image:drawImage(buffer, addPoints(cel.position, offset))
+      else
+        image:drawImage(
+          cel.image,
+          addPoints(cel.position, offset),
+          math.floor((cel.opacity/255) * layer.opacity),
+          layer.blendMode)
+      end
+    end
+    return
+  end
+  -- combine child layers, starting from lowest
+  for _, l in ipairs(layer.layers) do
+    self:combineLayers(image, l, frameNum, offset,selectedLayer or layer==self.layer)
+  end
 end
 
 --- @return nil
@@ -612,12 +663,15 @@ function Preview:createDialog()
 
           -- get image depending on isolating layers and frame
           local spriteImage = Image(cropTexelBounds.w, cropTexelBounds.h)
-          if self.isolateLayer then
-            local layer = app.layer
-            if not self.layerFollowEditor then
-              layer = self.layer 
+
+          -- combine layers even when not isolating if we need to manipulate the
+          -- individual layers
+          if self.isolateLayer or (self.filter == Filter.Silhouette and self.filterActive) then
+            local rootLayer = nil
+            if self.isolateLayer then
+              rootLayer = self.layer
             end
-            combineLayers(spriteImage, layer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+            self:combineLayers(spriteImage, rootLayer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
           else
             spriteImage:drawSprite(self.sprite, self.frame.frameNumber,
               Point(-cropTexelBounds.x, -cropTexelBounds.y)
@@ -637,17 +691,34 @@ function Preview:createDialog()
               end
             end
           end
-
+          if self.mirrored then displayImage:flip() end
+          local bufferImage = Image(gc.width, gc.height)
           if scale % 1 ~= 0 and scale < 2 then
             -- Rasterize at a fixed origin before translating, so panning does not
             -- change the sampling phase used to scale the sprite.
             local scaledImage = Image(displayBounds.w, displayBounds.h)
             scaledImage.context:drawImage(displayImage, displayImage.bounds, scaledImage.bounds)
 
-            gc:drawImage(scaledImage, scaledImage.bounds, displayBounds)
+            bufferImage.context:drawImage(scaledImage, scaledImage.bounds, displayBounds)
           else
-            gc:drawImage(displayImage, displayImage.bounds, displayBounds)
+            bufferImage.context:drawImage(displayImage, displayImage.bounds, displayBounds)
           end
+          if self.filterActive and self.filter == Filter.Grayscale then
+            for it in bufferImage:pixels() do
+
+              local rgbVal = it()
+              local pc = app.pixelColor
+              if pc.rgbaA(rgbVal) ~= 0 then
+                local grayVal
+                -- Rec. 601
+                grayVal = math.floor(0.299 * pc.rgbaR(rgbVal) + 0.587 * pc.rgbaG(rgbVal) + 0.114 * pc.rgbaB(rgbVal))
+                -- Rec. 709
+                -- grayVal = math.floor(0.2126 * pc.rgbaR(rgbVal) + 0.7152 * pc.rgbaG(rgbVal) + 0.0722 * pc.rgbaB(rgbVal))
+                it(pc.rgba(grayVal,grayVal,grayVal,255))
+              end
+            end
+          end
+          gc:drawImage(bufferImage, 0, 0)
 
           -- draw border around image
           gc.color = themeColor.editor_sprite_border
@@ -724,6 +795,7 @@ function Preview:createDialog()
           "zoom_slider",
           "area_combo",
           "tile_combo",
+          "filter_combo",
           "follow_layer_check",
           "anim_combo",
           "anim_slider",
@@ -743,8 +815,9 @@ function Preview:createDialog()
     },
     -- pin
     {id="pin_button",
-      icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12,
-      iconSel="timeline_closed_padlock_active",
+      icon="unpinned", iconWidth=8, iconHeight=8,
+      iconSel="pinned", iconSelWidth=6,
+      recolor=true,
       selected=self.pinned,
       width=13, height=15, togglable=true, onclick=function ()
         self.pinned = customButtons.lookup["pin_button"].selected
@@ -752,6 +825,17 @@ function Preview:createDialog()
         if not self.pinned then
           self:updateVisibility()
         end
+      end
+    },
+    -- filter 
+    {id="filter_button",
+      icon="timeline_onionskin", iconWidth=12, iconHeight=12,
+      iconSel="timeline_onionskin_active",
+      recolor=false,
+      selected=self.filterActive,
+      width=13, height=15, togglable=true, onclick=function ()
+        self.filterActive = customButtons.lookup["filter_button"].selected
+        self:repaint()
       end
     },
     -- isolate layer
@@ -784,9 +868,20 @@ function Preview:createDialog()
     {id="center_button",
       icon="window_center_icon", iconWidth=4, iconHeight=5,
       width=13, height=15, rightAlign=true,
+      recolor=true,
       selected=false,
       onclick=function ()
         self.spritePos = subPoints(mulVect(self.lastCanvasSize, 0.5), mulVect(app.editor.scroll, self:scale()))
+      end
+    },
+    -- flip
+    {id="mirror_button",
+      icon="horizontal_symmetry", iconWidth=11, iconHeight=13,
+      recolor=false, width=13, height=15, togglable=true, rightAlign=true,
+      selected=self.mirrored,
+      onclick=function ()
+        self.mirrored = customButtons.lookup["mirror_button"].selected
+        self:repaint()
       end
     },
   }
@@ -810,6 +905,17 @@ function Preview:createDialog()
     onrelease=function () end
   }
   :tab{ id="area_tab", text="Canvas"}
+  :check{ id="follow_layer_check",
+    visible=false,
+    text="Follow Layer",
+    selected=self.layerFollowEditor,
+    focus=false,
+    onclick=function()
+      self.layerFollowEditor = dlg.data["follow_layer_check"]
+      self.layer = app.layer
+      self:repaint()
+    end
+  }
   :combobox{ id="area_combo",
     visible=false,
     label="Area",
@@ -839,14 +945,21 @@ function Preview:createDialog()
       self:repaint()
     end
   }
-  :check{ id="follow_layer_check",
+  :combobox{ id="filter_combo",
     visible=false,
-    text="Follow Editor",
-    selected=self.layerFollowEditor,
-    focus=false,
-    onclick=function()
-      self.layerFollowEditor = dlg.data["follow_layer_check"]
-      self.layer = app.layer
+    label="Filter",
+    option=Filter.Grayscale,
+    options=filterOptions,
+    onchange=function()
+      self.filter = filterMap[dlg.data["filter_combo"]]
+      self:repaint()
+    end
+  }
+  :color{ id="silhouette_picker",
+    label="Silhouette Color",
+    color=self.silhouette,
+    onchange=function ()
+      self.silhouette = dlg.data["silhouette_picker"]
       self:repaint()
     end
   }
@@ -985,6 +1098,7 @@ local function appSiteChanged()
   for _, preview in pairs(previews) do
     if preview then
       preview:updateVisibility()
+      preview:updateLayer()
       preview:updateFrame()
       preview:repaint()
     end
