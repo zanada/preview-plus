@@ -48,6 +48,7 @@ local IconButton = {
   rightAlign=false,
   onclick = function() print("Unassigned") end,
   onenabled = function() return true end,
+  text=nil
 }
 IconButton.__index = IconButton
 

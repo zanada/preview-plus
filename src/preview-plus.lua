@@ -180,6 +180,7 @@ end
 ---@field listeners integer[]   list of sprite listener ids
 ---@field visible boolean       true if currently visible
 ---@field open boolean          true if toggled on, whether or not currently visible
+---@field pinned boolean
 ---@field spritePos Point       Position of the origin of sprite within the canvas
 ---@field zoomLevel integer     index on the zoom_scales array
 ---@field mouseDragging boolean True if being panned by mouse
@@ -219,6 +220,7 @@ function Preview:new()
   o.sprite = app.sprite
   o.visible = false
   o.open = false
+  o.pinned = false
   o.mouseDragging = false
   o.lastCanvasSize = Point(180,200)
   o.tileMode = Tiled.None
@@ -792,16 +794,6 @@ function Preview:createDialog()
         local bounds = dlg.bounds
         local preSizeHint = dlg.sizeHint
         local widgets = {
-          "zoom_slider",
-          "area_combo",
-          "tile_combo",
-          "filter_combo",
-          "follow_layer_check",
-          "anim_combo",
-          "anim_slider",
-          "ignore_check",
-          "follow_check",
-          "speed_combo",
           "tabs",
         }
         for _, widget in ipairs(widgets) do
@@ -813,20 +805,20 @@ function Preview:createDialog()
         )
       end
     },
-    -- pin
-    {id="pin_button",
-      icon="unpinned", iconWidth=8, iconHeight=8,
-      iconSel="pinned", iconSelWidth=6,
-      recolor=true,
-      selected=self.pinned,
-      width=13, height=15, togglable=true, onclick=function ()
-        self.pinned = customButtons.lookup["pin_button"].selected
-        -- case where window should disappear when unpinned
-        if not self.pinned then
-          self:updateVisibility()
-        end
-      end
-    },
+    -- pin (moved under cut for simplicity)
+    -- {id="pin_button",
+    --   icon="unpinned", iconWidth=8, iconHeight=8,
+    --   iconSel="pinned", iconSelWidth=6,
+    --   recolor=true,
+    --   selected=self.pinned,
+    --   width=13, height=15, togglable=true, onclick=function ()
+    --     self.pinned = customButtons.lookup["pin_button"].selected
+    --     -- case where window should disappear when unpinned
+    --     if not self.pinned then
+    --       self:updateVisibility()
+    --     end
+    --   end
+    -- },
     -- filter 
     {id="filter_button",
       icon="timeline_onionskin", iconWidth=12, iconHeight=12,
@@ -877,7 +869,7 @@ function Preview:createDialog()
     -- flip
     {id="mirror_button",
       icon="horizontal_symmetry", iconWidth=11, iconHeight=13,
-      recolor=false, width=13, height=15, togglable=true, rightAlign=true,
+      recolor=false, width=13, height=15, togglable=true, rightAlign=false,
       selected=self.mirrored,
       onclick=function ()
         self.mirrored = customButtons.lookup["mirror_button"].selected
@@ -891,33 +883,8 @@ function Preview:createDialog()
     widgets=customButtons.widgets,
   }
   dlg
-  :tab{ id="zoom_tab", text="Zoom"}
-  :slider{ id="zoom_slider",
-    visible=false,
-    focus=false,
-    min=1-defaultZoomLevel,
-    max=scalesSize-defaultZoomLevel,
-    value=self.zoomLevel-defaultZoomLevel,
-    onchange=function ()
-      self:zoomTo(dlg.data["zoom_slider"] + defaultZoomLevel)
-      self:repaint()
-    end,
-    onrelease=function () end
-  }
   :tab{ id="area_tab", text="Canvas"}
-  :check{ id="follow_layer_check",
-    visible=false,
-    text="Follow Layer",
-    selected=self.layerFollowEditor,
-    focus=false,
-    onclick=function()
-      self.layerFollowEditor = dlg.data["follow_layer_check"]
-      self.layer = app.layer
-      self:repaint()
-    end
-  }
   :combobox{ id="area_combo",
-    visible=false,
     label="Area",
     option="Canvas",
     options=getKeys(areas),
@@ -927,7 +894,6 @@ function Preview:createDialog()
     end
   }
   :combobox{ id="tile_combo",
-    visible=false,
     label="Tiled",
     option="None",
     options={"None", "Tiled in Both Axes", "Tiled in X Axis", "Tiled in Y Axis"},
@@ -946,7 +912,6 @@ function Preview:createDialog()
     end
   }
   :combobox{ id="filter_combo",
-    visible=false,
     label="Filter",
     option=Filter.Grayscale,
     options=filterOptions,
@@ -963,10 +928,19 @@ function Preview:createDialog()
       self:repaint()
     end
   }
+  :check{ id="follow_layer_check",
+    text="Follow Layer",
+    selected=self.layerFollowEditor,
+    focus=false,
+    onclick=function()
+      self.layerFollowEditor = dlg.data["follow_layer_check"]
+      self.layer = app.layer
+      self:repaint()
+    end
+  }
   :newrow()
   :tab{ id="anim_tab", text="Animation"}
   :check{ id="ignore_check",
-    visible=false,
     text="Ignore Subtags",
     selected=self.ignoreTags,
     focus=false,
@@ -975,7 +949,6 @@ function Preview:createDialog()
     end
   }
   :check{ id="follow_check",
-    visible=false,
     text="Follow Editor",
     selected=self.followEditor,
     focus=false,
@@ -983,8 +956,8 @@ function Preview:createDialog()
       self.followEditor = dlg.data["follow_check"]
     end
   }
+  :newrow()
   :slider{ id="anim_slider",
-    visible=false,
     label="Frame",
     focus=false,
     min=1,
@@ -1000,7 +973,6 @@ function Preview:createDialog()
     onrelease=function () end
   }
   :combobox{ id="anim_combo",
-    visible=false,
     label="Scope",
     option=allFrames,
     options={allFrames},
@@ -1014,7 +986,6 @@ function Preview:createDialog()
     end
   }
   :combobox{ id="speed_combo",
-    visible=false,
     label="Speed",
     option="1x",
     options={
@@ -1027,6 +998,31 @@ function Preview:createDialog()
     },
     onchange=function()
       self.speed = speedOptions[dlg.data["speed_combo"]]
+    end
+  }
+  :tab{ id="misc_tab", text="Misc."}
+  :slider{ id="zoom_slider",
+    label="Zoom",
+    focus=false,
+    min=1-defaultZoomLevel,
+    max=scalesSize-defaultZoomLevel,
+    value=self.zoomLevel-defaultZoomLevel,
+    onchange=function ()
+      self:zoomTo(dlg.data["zoom_slider"] + defaultZoomLevel)
+      self:repaint()
+    end,
+    onrelease=function () end
+  }
+  :check{ id="pin_check",
+    text="Pin preview",
+    selected=self.pinned,
+    focus=false,
+    onclick=function()
+      self.pinned = dlg.data["pin_check"]
+      -- case where window should disappear when unpinned
+      if not self.pinned then
+        self:updateVisibility()
+      end
     end
   }
   :endtabs{ id="tabs",
