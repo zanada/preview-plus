@@ -826,7 +826,7 @@ function Preview:createDialog()
   local customButtons
   customButtons = CustomWidgets:buttonGroup{
     -- expand dialog
-    {id="expand_button",
+    {id="expand_button", tooltip="Toggle expand",
       icon="pal_options", iconWidth=4, iconHeight=5,
       width=13, height=15, recolor=true, togglable=true,
       onclick=function()
@@ -860,7 +860,7 @@ function Preview:createDialog()
     --   end
     -- },
     -- filter 
-    {id="filter_button",
+    {id="filter_button", tooltip="Toggle filter",
       icon="timeline_onionskin", iconWidth=12, iconHeight=12,
       iconSel="timeline_onionskin_active",
       recolor=false,
@@ -871,7 +871,7 @@ function Preview:createDialog()
       end
     },
     -- isolate layer
-    {id="isolate_button",
+    {id="isolate_button", tooltip="Toggle isolate layer",
       icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13,
       iconSel="timeline_closed_eye_active",
       selected=self.isolateLayer,
@@ -881,7 +881,7 @@ function Preview:createDialog()
       end
     },
     -- play animation
-    {id="play_button",
+    {id="play_button", tooltip="Toggle play animation",
       icon="ani_play", iconWidth=4, iconHeight=6,
       iconSel="ani_stop", iconSelWidth=4, iconSelHeight=6,
       recolor=true, width=13, height=15, togglable=true, rightAlign=true,
@@ -897,7 +897,7 @@ function Preview:createDialog()
       end
     },
     -- center
-    {id="center_button",
+    {id="center_button", tooltip="Center view",
       icon="window_center_icon", iconWidth=4, iconHeight=5,
       width=13, height=15, rightAlign=true,
       recolor=true,
@@ -907,7 +907,7 @@ function Preview:createDialog()
       end
     },
     -- flip
-    {id="mirror_button",
+    {id="mirror_button", tooltip="Mirror view",
       icon="horizontal_symmetry", iconWidth=11, iconHeight=13,
       recolor=false, width=13, height=15, togglable=true, rightAlign=false,
       selected=self.mirrored,
