@@ -21,22 +21,24 @@ local allFrames = "All frames"
 
 -- Tile modes
 local Tiled = {
-  None = 1,
-  Both = 2,
-  X = 3,
-  Y = 4
+  None = "None",
+  Both = "Tiled in Both Axes",
+  X = "Tiled in X Axis",
+  Y = "Tiled in Y Axis"
 }
+local tileOptions = {}
+for k, v in pairs(Tiled) do
+  table.insert(tileOptions, v)
+end
 
 -- Filter Options
 local Filter = {
   Grayscale = "Grayscale",
-  Silhouette = "Silhouette"
+  Silhouette = "Silhouette",
 }
 local filterOptions = {}
-local filterMap = {}
-for k, v in pairs(Filter) do
+for _, v in pairs(Filter) do
   table.insert(filterOptions, v)
-  filterMap[v] = k
 end
 local defaultSilhouetteCol = Color{gray=50, alpha=255}
 
@@ -156,6 +158,32 @@ local function modifyDialogKeepBounds(dialog, modifications)
   dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
 end
 
+---@param sprite Sprite
+---@return string|nil
+local function spriteKey(sprite)
+  return sprite.hasAssociatedFile and sprite.filename:gsub("\\", "/") or nil
+end
+
+---@param sprite Sprite
+local function layerBFS(sprite, uuid)
+  local queue = {} ---@type Layer[]
+  for _,l in ipairs(sprite.layers) do
+    table.insert(queue, l)
+  end
+  while #queue > 0 do
+    local l = table.remove(queue, 1) ---@type Layer
+    if l.uuid == uuid then
+      return l
+    end
+    if l.isGroup then
+      for _,c in ipairs(l.layers) do
+        table.insert(queue, c)
+      end
+    end
+  end
+  return nil
+end
+
 -----------------------------------------------------------------------
 -- Helpers
 -----------------------------------------------------------------------
@@ -188,7 +216,7 @@ end
 ---@field lastCanvasSize Point  Last recorded size of preview canvas
 ---@field isolateLayer boolean  true if showing just the active layer
 ---@field area Rectangle        area of sprite currently shown
----@field tileMode integer
+---@field tileMode string
 ---@field playing boolean       if currently playing animation
 ---@field frame Frame current   frame being displayed
 ---@field aTimer Timer|nil      animation timer
@@ -196,11 +224,11 @@ end
 ---@field ignoreTags boolean    Ignore all tags (except scope tag)
 ---@field followEditor boolean  Current frame follows current frame in editor
 ---@field layer Layer       Current layer
----@field layerFollowEditor boolean Current layer follows layer in editor
+---@field followLayer boolean Current layer follows layer in editor
 ---@field speed number          Playback speed multiplier
 ---@field scopeCallback function Hacky way to update scope selection
 ---@field mirrored boolean      if canvas is mirrored
----@field filter integer        filter mode
+---@field filter string        filter mode
 ---@field silhouette Color
 ---@field filterActive boolean
 local Preview = {}
@@ -208,41 +236,53 @@ local Preview = {}
 Preview.stopPlayback = Playback.stopPlayback
 Preview.startPlayback = Playback.startPlayback
 
+--- @param c? table config from previous session
 --- @return Preview
-function Preview:new()
+function Preview:new(c)
+  c = c or {}
   -- create preview object
   local o = {}
   setmetatable(o, self)
   self.__index = self
 
-  o.spritePos = Point(10,10)
-  o.zoomLevel = defaultZoomLevel
   o.sprite = app.sprite
+  o.spritePos = Point(10,10)
+  o.zoomLevel = c.zoomLevel or defaultZoomLevel
   o.visible = false
   o.open = false
+  
+  o.isolateLayer = false
   o.pinned = false
-  o.mouseDragging = false
-  o.lastCanvasSize = Point(180,200)
-  o.tileMode = Tiled.None
   o.mirrored = false
-  o.filter = Filter.Grayscale
   o.filterActive = false
-  o.silhouette = defaultSilhouetteCol
-
-  o.layerFollowEditor = true
-  o.layer = app.layer
+  o.ignoreTags =  true
+  o.followEditor = true
+  o.followLayer = true
+  if c.isolateLayer ~= nil then o.isolateLayer = c.isolateLayer end
+  if c.pinned ~= nil then o.pinned = c.pinned end
+  if c.mirrored ~= nil then o.mirrored = c.mirrored end
+  if c.filterActive ~= nil then o.filterActive = c.filterActive end
+  if c.ignoreTags ~= nil then o.ignoreTags = c.ignoreTags end
+  if c.followEditor ~= nil then o.followEditor = c.followEditor end
+  if c.followLayer ~= nil then o.followLayer = c.followLayer end
+  
+  o.mouseDragging = false
+  o.lastCanvasSize = c.lastCanvasSize and Point(c.lastCanvasSize.x, c.lastCanvasSize.y) or Point(180,200)
+  o.tileMode = c.tileMode or Tiled.None
+  o.filter = c.filter or Filter.Grayscale
+  o.silhouette = c.silhouette and Color(c.silhouette) or defaultSilhouetteCol
+  o.layer = c.layerUuid and layerBFS(o.sprite, Uuid(c.layerUuid)) or app.layer
 
   o.playing = false
   o.frame = app.frame
   o.aTimer = nil
   o.scopeTag = nil
-  o.ignoreTags = true
-  o.followEditor = true
-  o.speed = 1
+  o.speed = c.speed or 1
   o.scopeCallback = nil
   o.listeners = {}
 
   o:setArea(app.sprite.bounds)
+  if c.spritePos then o.spritePos = Point(c.spritePos.x, c.spritePos.y) end
   o:createDialog()
 
   table.insert(o.listeners, o.sprite.events:on('change', function(ev)
@@ -291,7 +331,7 @@ end
 --- @return nil
 function Preview:updateLayer()
   if app.sprite ~= self.sprite then return end
-  if self.layerFollowEditor then self.layer = app.layer end
+  if self.followLayer then self.layer = app.layer end
 end
 
 --- @return nil
@@ -895,28 +935,19 @@ function Preview:createDialog()
   }
   :combobox{ id="tile_combo",
     label="Tiled",
-    option="None",
-    options={"None", "Tiled in Both Axes", "Tiled in X Axis", "Tiled in Y Axis"},
+    option=self.tileMode,
+    options=tileOptions,
     onchange=function()
-      local mode = dlg.data["tile_combo"]
-      if mode == "Tiled in Both Axes" then
-        self.tileMode = Tiled.Both
-      elseif mode == "Tiled in X Axis" then
-        self.tileMode = Tiled.X
-      elseif mode == "Tiled in Y Axis" then
-        self.tileMode = Tiled.Y
-      else
-        self.tileMode = Tiled.None
-      end
+      self.tileMode = dlg.data["tile_combo"]
       self:repaint()
     end
   }
   :combobox{ id="filter_combo",
     label="Filter",
-    option=Filter.Grayscale,
+    option=self.filter,
     options=filterOptions,
     onchange=function()
-      self.filter = filterMap[dlg.data["filter_combo"]]
+      self.filter = dlg.data["filter_combo"]
       self:repaint()
     end
   }
@@ -930,10 +961,10 @@ function Preview:createDialog()
   }
   :check{ id="follow_layer_check",
     text="Follow Layer",
-    selected=self.layerFollowEditor,
+    selected=self.followLayer,
     focus=false,
     onclick=function()
-      self.layerFollowEditor = dlg.data["follow_layer_check"]
+      self.followLayer = dlg.data["follow_layer_check"]
       self.layer = app.layer
       self:repaint()
     end
@@ -1062,8 +1093,9 @@ local function CurrentPreviewOpen()
   return false
 end
 
+--- @param plugin Plugin
 --- @return nil
-local function ToggleCurrentPreview()
+local function ToggleCurrentPreview(plugin)
   local sprite = app.sprite
   if sprite == nil then
     app.alert("No active sprite")
@@ -1081,10 +1113,9 @@ local function ToggleCurrentPreview()
     return
   end
   -- create preview if none exists
-  preview = Preview:new()
+  preview = Preview:new(plugin.preferences.config[spriteKey(sprite)])
   previews[sprite["id"]] = preview
   preview_count = preview_count + 1
-
   preview:show()
 end
 
@@ -1103,6 +1134,9 @@ end
 
 function init(plugin)
   if not app.isUIAvailable then return end
+  if plugin.preferences.config == nil then
+    plugin.preferences.config = {}
+  end
 
   siteListener = app.events:on('sitechange', appSiteChanged)
 
@@ -1116,7 +1150,7 @@ function init(plugin)
     id="preview_plus",
     title="Preview Plus",
     group="preview_plus_group",
-    onclick=function() ToggleCurrentPreview() end,
+    onclick=function() ToggleCurrentPreview(plugin) end,
     onenabled=function() return app.sprite ~= nil end,
     onchecked=function() return CurrentPreviewOpen() end
   }
@@ -1136,6 +1170,29 @@ end
 function exit(plugin)
   app.events:off(siteListener)
   for _, preview in pairs(previews) do
+    -- save preferences
+    local key = spriteKey(preview.sprite)
+    if plugin and key then
+      plugin.preferences.config[key] = {
+        pinned = preview.pinned,
+        spritePos = {x=preview.spritePos.x,y=preview.spritePos.y},
+        zoomLevel = preview.zoomLevel,
+        lastCanvasSize = {x=preview.lastCanvasSize.x,y=preview.lastCanvasSize.y},
+        --area = {x=preview.area.x, y=preview.area.y, width=preview.area.width, height=preview.area.height},
+        isolateLayer = preview.isolateLayer,
+        tileMode = preview.tileMode,
+        ignoreTags = preview.ignoreTags,
+        followEditor = preview.followEditor,
+        layerUuid = tostring(preview.layer.uuid),
+        followLayer = preview.followLayer,
+        speed = preview.speed,
+        mirrored = preview.mirrored,
+        filter = preview.filter,
+        silhouette = preview.silhouette.rgbaPixel,
+        filterActive = preview.filterActive,
+      }
+    end
+
     preview:stopPlayback()
     preview:disconnect()
     if preview.dialog then
