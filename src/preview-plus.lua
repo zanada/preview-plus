@@ -184,6 +184,20 @@ local function layerBFS(sprite, uuid)
   return nil
 end
 
+---Return the intersection between two rectangles
+---@param r1 Rectangle
+---@param r2 Rectangle
+---@return Rectangle|nil
+local function rectIntersection(r1, r2)
+  local left = r1.x >= r2.x and r1.x or r2.x
+  local right = r1.x+r1.width-1 <= r2.x+r2.width-1 and r1.x+r1.width-1 or r2.x+r2.width-1
+  if left > right then return nil end
+  local top = r1.y >= r2.y and r1.y or r2.y
+  local bottom = r1.y+r1.height-1 <= r2.y+r2.height-1 and r1.y+r1.height-1 or r2.y+r2.height-1
+  if top > bottom then return nil end
+  return Rectangle(left, bottom, right-left+1, bottom-top+1)
+end
+
 -----------------------------------------------------------------------
 -- Helpers
 -----------------------------------------------------------------------
@@ -734,18 +748,42 @@ function Preview:createDialog()
             end
           end
           if self.mirrored then displayImage:flip() end
+
+          -- optimization whether to apply grayscale before after scaling
+          local preProcess = false
+          if self.filter == Filter.Grayscale and self.filterActive then
+            local renderBounds = rectIntersection(Rectangle(0,0,gc.width,gc.height), displayBounds)
+            if renderBounds then
+              preProcess = cropTexelBounds.width*cropTexelBounds.height < renderBounds.width * renderBounds.height
+            end
+            if preProcess then
+              for it in displayImage:pixels() do
+
+                local rgbVal = it()
+                local pc = app.pixelColor
+                if pc.rgbaA(rgbVal) ~= 0 then
+                  local grayVal
+                  -- Rec. 601
+                  grayVal = math.floor(0.299 * pc.rgbaR(rgbVal) + 0.587 * pc.rgbaG(rgbVal) + 0.114 * pc.rgbaB(rgbVal))
+                  -- Rec. 709
+                  -- grayVal = math.floor(0.2126 * pc.rgbaR(rgbVal) + 0.7152 * pc.rgbaG(rgbVal) + 0.0722 * pc.rgbaB(rgbVal))
+                  it(pc.rgba(grayVal,grayVal,grayVal,255))
+                end
+              end
+            end
+          end
+
           local bufferImage = Image(gc.width, gc.height)
           if scale % 1 ~= 0 and scale < 2 then
             -- Rasterize at a fixed origin before translating, so panning does not
             -- change the sampling phase used to scale the sprite.
             local scaledImage = Image(displayBounds.w, displayBounds.h)
             scaledImage.context:drawImage(displayImage, displayImage.bounds, scaledImage.bounds)
-
             bufferImage.context:drawImage(scaledImage, scaledImage.bounds, displayBounds)
           else
             bufferImage.context:drawImage(displayImage, displayImage.bounds, displayBounds)
           end
-          if self.filterActive and self.filter == Filter.Grayscale then
+          if not preProcess and self.filterActive and self.filter == Filter.Grayscale then
             for it in bufferImage:pixels() do
 
               local rgbVal = it()
