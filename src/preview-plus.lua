@@ -1157,27 +1157,39 @@ local function ToggleCurrentPreview(plugin)
   preview:show()
 end
 
+
+local quitPreview
 local siteListener
 ---@return nil
-local function appSiteChanged()
+local function appSiteChanged(plugin)
+  local spriteSet = {}
+  for _,s in ipairs(app.sprites) do
+    spriteSet[s["id"]] = true
+  end
   for _, preview in pairs(previews) do
-    if preview then
+    assert(preview)
+    if spriteSet[preview.sprite["id"]] then
       preview:updateVisibility()
       preview:updateLayer()
       preview:updateFrame()
       preview:repaint()
+    else
+      print("saved config")
+      quitPreview(plugin, preview)
     end
+    
   end
 end
 
 local quit
+
 function init(plugin)
   if not app.isUIAvailable then return end
   if plugin.preferences.config == nil then
     plugin.preferences.config = {}
   end
 
-  siteListener = app.events:on('sitechange', appSiteChanged)
+  siteListener = app.events:on('sitechange', function() appSiteChanged(plugin) end)
 
   plugin:newMenuGroup{
     id="preview_plus_group",
@@ -1206,40 +1218,47 @@ function init(plugin)
   }
 end
 
+---@param plugin any
+---@param preview Preview
+quitPreview = function (plugin, preview)
+  -- save preferences
+  local key = spriteKey(preview.sprite)
+  if plugin and key then
+    plugin.preferences.config[key] = {
+      pinned = preview.pinned,
+      spritePos = {x=preview.spritePos.x,y=preview.spritePos.y},
+      zoomLevel = preview.zoomLevel,
+      lastCanvasSize = {x=preview.lastCanvasSize.x,y=preview.lastCanvasSize.y},
+      --area = {x=preview.area.x, y=preview.area.y, width=preview.area.width, height=preview.area.height},
+      isolateLayer = preview.isolateLayer,
+      tileMode = preview.tileMode,
+      ignoreTags = preview.ignoreTags,
+      followEditor = preview.followEditor,
+      layerUuid = tostring(preview.layer.uuid),
+      followLayer = preview.followLayer,
+      speed = preview.speed,
+      mirrored = preview.mirrored,
+      filter = preview.filter,
+      silhouette = preview.silhouette.rgbaPixel,
+      filterActive = preview.filterActive,
+    }
+  end
+
+  preview:stopPlayback()
+  preview:disconnect()
+  if preview.dialog then
+    preview.dialog:close()
+  end
+  previews[preview.sprite["id"]] = nil
+  assert(previews[preview.sprite["id"]] == nil)
+  preview_count = preview_count - 1
+end
+
 quit = function (plugin)
   app.events:off(siteListener)
   for _, preview in pairs(previews) do
-    -- save preferences
-    local key = spriteKey(preview.sprite)
-    if plugin and key then
-      plugin.preferences.config[key] = {
-        pinned = preview.pinned,
-        spritePos = {x=preview.spritePos.x,y=preview.spritePos.y},
-        zoomLevel = preview.zoomLevel,
-        lastCanvasSize = {x=preview.lastCanvasSize.x,y=preview.lastCanvasSize.y},
-        --area = {x=preview.area.x, y=preview.area.y, width=preview.area.width, height=preview.area.height},
-        isolateLayer = preview.isolateLayer,
-        tileMode = preview.tileMode,
-        ignoreTags = preview.ignoreTags,
-        followEditor = preview.followEditor,
-        layerUuid = tostring(preview.layer.uuid),
-        followLayer = preview.followLayer,
-        speed = preview.speed,
-        mirrored = preview.mirrored,
-        filter = preview.filter,
-        silhouette = preview.silhouette.rgbaPixel,
-        filterActive = preview.filterActive,
-      }
-    end
-
-    preview:stopPlayback()
-    preview:disconnect()
-    if preview.dialog then
-      preview.dialog:close()
-    end
+    quitPreview(plugin, preview)
   end
-  previews = {}
-  preview_count = 0
 end
 
 function exit(plugin)
