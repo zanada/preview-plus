@@ -52,6 +52,8 @@ alt="Isolate Example">
   alt="Silhouette example">
   </p>
 
+* **Mirror Canvas**
+
 * **Follow Layer** - Choose to display a different layer or group than the editor. Useful for working while showing a clean view without guidelines or viewing overall silhouette
 
 <p align="center">
