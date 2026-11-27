@@ -21,11 +21,26 @@ local allFrames = "All frames"
 
 -- Tile modes
 local Tiled = {
-  None = 1,
-  Both = 2,
-  X = 3,
-  Y = 4
+  None = "None",
+  Both = "Tiled in Both Axes",
+  X = "Tiled in X Axis",
+  Y = "Tiled in Y Axis"
 }
+local tileOptions = {}
+for k, v in pairs(Tiled) do
+  table.insert(tileOptions, v)
+end
+
+-- Filter Options
+local Filter = {
+  Grayscale = "Grayscale",
+  Silhouette = "Silhouette",
+}
+local filterOptions = {}
+for _, v in pairs(Filter) do
+  table.insert(filterOptions, v)
+end
+local defaultSilhouetteCol = Color{gray=50, alpha=255}
 
 -- Playback speeds
 local speedOptions = {
@@ -143,6 +158,46 @@ local function modifyDialogKeepBounds(dialog, modifications)
   dialog.bounds = Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
 end
 
+---@param sprite Sprite
+---@return string|nil
+local function spriteKey(sprite)
+  return sprite.hasAssociatedFile and sprite.filename:gsub("\\", "/") or nil
+end
+
+---@param sprite Sprite
+local function layerBFS(sprite, uuid)
+  local queue = {} ---@type Layer[]
+  for _,l in ipairs(sprite.layers) do
+    table.insert(queue, l)
+  end
+  while #queue > 0 do
+    local l = table.remove(queue, 1) ---@type Layer
+    if l.uuid == uuid then
+      return l
+    end
+    if l.isGroup then
+      for _,c in ipairs(l.layers) do
+        table.insert(queue, c)
+      end
+    end
+  end
+  return nil
+end
+
+---Return the intersection between two rectangles
+---@param r1 Rectangle
+---@param r2 Rectangle
+---@return Rectangle|nil
+local function rectIntersection(r1, r2)
+  local left = r1.x >= r2.x and r1.x or r2.x
+  local right = r1.x+r1.width-1 <= r2.x+r2.width-1 and r1.x+r1.width-1 or r2.x+r2.width-1
+  if left > right then return nil end
+  local top = r1.y >= r2.y and r1.y or r2.y
+  local bottom = r1.y+r1.height-1 <= r2.y+r2.height-1 and r1.y+r1.height-1 or r2.y+r2.height-1
+  if top > bottom then return nil end
+  return Rectangle(left, bottom, right-left+1, bottom-top+1)
+end
+
 -----------------------------------------------------------------------
 -- Helpers
 -----------------------------------------------------------------------
@@ -157,33 +212,6 @@ local function getKeys(t)
   return keys
 end
 
----Draw the flattened image of all layers in the group onto the image
----@param image Image Image being drawn to
----@param layer Layer Root layer
----@param frameNum integer
----@param offset Point
----@return nil
-local function combineLayers(image, layer, frameNum, offset)
-  if not layer.isVisible then return end
-
-  local cel = layer:cel(frameNum)
-  if not layer.isGroup then
-    if cel then
-      image:drawImage(
-        cel.image,
-        addPoints(cel.position, offset),
-        math.floor((cel.opacity/255) * layer.opacity),
-        layer.blendMode)
-    end
-    return
-  end
-  -- combine child layers, starting from lowest
-  for _, l in ipairs(layer.layers) do
-    combineLayers(image, l, frameNum, offset)
-  end
-end
-
-
 -----------------------------------------------------------------------
 -- Preview Plus object
 -----------------------------------------------------------------------
@@ -194,6 +222,7 @@ end
 ---@field listeners integer[]   list of sprite listener ids
 ---@field visible boolean       true if currently visible
 ---@field open boolean          true if toggled on, whether or not currently visible
+---@field pinned boolean
 ---@field spritePos Point       Position of the origin of sprite within the canvas
 ---@field zoomLevel integer     index on the zoom_scales array
 ---@field mouseDragging boolean True if being panned by mouse
@@ -201,49 +230,90 @@ end
 ---@field lastCanvasSize Point  Last recorded size of preview canvas
 ---@field isolateLayer boolean  true if showing just the active layer
 ---@field area Rectangle        area of sprite currently shown
----@field tileMode integer
+---@field tileMode string
 ---@field playing boolean       if currently playing animation
 ---@field frame Frame current   frame being displayed
 ---@field aTimer Timer|nil      animation timer
 ---@field scopeTag Tag|nil      Current scope for playback, nil means all frames
 ---@field ignoreTags boolean    Ignore all tags (except scope tag)
 ---@field followEditor boolean  Current frame follows current frame in editor
+---@field layer Layer       Current layer
+---@field followLayer boolean Current layer follows layer in editor
 ---@field speed number          Playback speed multiplier
 ---@field scopeCallback function Hacky way to update scope selection
+---@field mirrored boolean      if canvas is mirrored
+---@field filter string        filter mode
+---@field silhouette Color
+---@field filterActive boolean
 local Preview = {}
 
 Preview.stopPlayback = Playback.stopPlayback
 Preview.startPlayback = Playback.startPlayback
 
+--- @param c? table config from previous session
 --- @return Preview
-function Preview:new()
+function Preview:new(c)
+  c = c or {}
   -- create preview object
   local o = {}
   setmetatable(o, self)
   self.__index = self
 
-  o.spritePos = Point(10,10)
-  o.zoomLevel = defaultZoomLevel
   o.sprite = app.sprite
+  o.spritePos = Point(10,10)
+  o.zoomLevel = c.zoomLevel or defaultZoomLevel
   o.visible = false
   o.open = false
+
+  o.isolateLayer = false
+  o.pinned = false
+  o.mirrored = false
+  o.filterActive = false
+  o.ignoreTags =  true
+  o.followEditor = true
+  o.followLayer = true
+  if c.isolateLayer ~= nil then o.isolateLayer = c.isolateLayer end
+  if c.pinned ~= nil then o.pinned = c.pinned end
+  if c.mirrored ~= nil then o.mirrored = c.mirrored end
+  if c.filterActive ~= nil then o.filterActive = c.filterActive end
+  if c.ignoreTags ~= nil then o.ignoreTags = c.ignoreTags end
+  if c.followEditor ~= nil then o.followEditor = c.followEditor end
+  if c.followLayer ~= nil then o.followLayer = c.followLayer end
+
   o.mouseDragging = false
-  o.lastCanvasSize = Point(180,200)
-  o.tileMode = Tiled.None
+  o.lastCanvasSize = c.lastCanvasSize and Point(c.lastCanvasSize.x, c.lastCanvasSize.y) or Point(180,200)
+  o.tileMode = c.tileMode or Tiled.None
+  o.filter = c.filter or Filter.Grayscale
+  o.silhouette = c.silhouette and Color(c.silhouette) or defaultSilhouetteCol
+  o.layer = c.layerUuid and layerBFS(o.sprite, Uuid(c.layerUuid)) or app.layer
+
   o.playing = false
   o.frame = app.frame
   o.aTimer = nil
   o.scopeTag = nil
-  o.ignoreTags = true
-  o.followEditor = true
-  o.speed = 1
+  o.speed = c.speed or 1
   o.scopeCallback = nil
   o.listeners = {}
 
   o:setArea(app.sprite.bounds)
+  if c.spritePos then o.spritePos = Point(c.spritePos.x, c.spritePos.y) end
   o:createDialog()
 
-  table.insert(o.listeners, o.sprite.events:on('change', function(ev) o:repaint(ev) end))
+  table.insert(o.listeners, o.sprite.events:on('change', function(ev)
+      local layerExists = pcall(function() return o.layer.name end)
+      if not layerExists then o.layer = app.layer end
+
+      local frameValid = o.frame ~= nil and
+        pcall(function() return o.frame.frameNumber end) and
+        o.frame.frameNumber <= #o.sprite.frames
+      if not frameValid then
+        o.frame = app.frame
+        o:stopPlayback()
+        o:startPlayback()
+      end
+      o:updateFrame()
+      o:repaint(ev)
+    end))
   table.insert(o.listeners, o.sprite.events:on('layeropacity', function(ev) o:repaint(ev) end))
   table.insert(o.listeners, o.sprite.events:on('layervisibility', function(ev) o:repaint(ev) end))
   return o
@@ -270,6 +340,12 @@ function Preview:updateVisibility()
     -- flip open back to true
     self.open = true
   end
+end
+
+--- @return nil
+function Preview:updateLayer()
+  if app.sprite ~= self.sprite then return end
+  if self.followLayer then self.layer = app.layer end
 end
 
 --- @return nil
@@ -301,6 +377,59 @@ end
 --- @return nil
 function Preview:repaint()
   self.dialog:repaint()
+end
+
+---Draw the flattened image of all layers in the group onto the image
+---@param image Image Image being drawn to
+---@param layer Layer|nil Root layer
+---@param frameNum integer
+---@param offset Point
+---@param selectedLayer? boolean true if selected layer or child of it
+---@return nil
+function Preview:combineLayers(image, layer, frameNum, offset, selectedLayer)
+  -- no layer given, draw whole sprite
+  if layer == nil then
+    for _, l in ipairs(self.sprite.layers) do
+      self:combineLayers(image, l, frameNum, offset)
+    end
+    return
+  end
+  if not layer.isVisible then return end
+
+  -- draw cel to image
+  local cel = layer:cel(frameNum)
+  if not layer.isGroup then
+    if cel then
+      -- case for drawing silhouette
+      if self.filterActive and self.filter == Filter.Silhouette and
+         (selectedLayer or layer == self.layer) then
+        local buffer = Image(cel.image.width, cel.image.height)
+        buffer:drawImage(
+          cel.image,
+          Point(0, 0),
+          math.floor((cel.opacity / 255) * layer.opacity)
+        )
+        for it in buffer:pixels() do
+          if app.pixelColor.rgbaA(it()) > 0 then
+            it(self.silhouette.rgbaPixel)
+          end
+        end
+
+        image:drawImage(buffer, addPoints(cel.position, offset))
+      else
+        image:drawImage(
+          cel.image,
+          addPoints(cel.position, offset),
+          math.floor((cel.opacity/255) * layer.opacity),
+          layer.blendMode)
+      end
+    end
+    return
+  end
+  -- combine child layers, starting from lowest
+  for _, l in ipairs(layer.layers) do
+    self:combineLayers(image, l, frameNum, offset,selectedLayer or layer==self.layer)
+  end
 end
 
 --- @return nil
@@ -590,8 +719,15 @@ function Preview:createDialog()
 
           -- get image depending on isolating layers and frame
           local spriteImage = Image(cropTexelBounds.w, cropTexelBounds.h)
-          if self.isolateLayer then
-            combineLayers(spriteImage, app.layer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
+
+          -- combine layers even when not isolating if we need to manipulate the
+          -- individual layers
+          if self.isolateLayer or (self.filter == Filter.Silhouette and self.filterActive) then
+            local rootLayer = nil
+            if self.isolateLayer then
+              rootLayer = self.layer
+            end
+            self:combineLayers(spriteImage, rootLayer, self.frame.frameNumber, Point(-cropTexelBounds.x, -cropTexelBounds.y))
           else
             spriteImage:drawSprite(self.sprite, self.frame.frameNumber,
               Point(-cropTexelBounds.x, -cropTexelBounds.y)
@@ -611,17 +747,58 @@ function Preview:createDialog()
               end
             end
           end
+          if self.mirrored then displayImage:flip() end
 
+          -- optimization whether to apply grayscale before after scaling
+          local preProcess = false
+          if self.filter == Filter.Grayscale and self.filterActive then
+            local renderBounds = rectIntersection(Rectangle(0,0,gc.width,gc.height), displayBounds)
+            if renderBounds then
+              preProcess = cropTexelBounds.width*cropTexelBounds.height < renderBounds.width * renderBounds.height
+            end
+            if preProcess then
+              for it in displayImage:pixels() do
+
+                local rgbVal = it()
+                local pc = app.pixelColor
+                if pc.rgbaA(rgbVal) ~= 0 then
+                  local grayVal
+                  -- Rec. 601
+                  grayVal = math.floor(0.299 * pc.rgbaR(rgbVal) + 0.587 * pc.rgbaG(rgbVal) + 0.114 * pc.rgbaB(rgbVal))
+                  -- Rec. 709
+                  -- grayVal = math.floor(0.2126 * pc.rgbaR(rgbVal) + 0.7152 * pc.rgbaG(rgbVal) + 0.0722 * pc.rgbaB(rgbVal))
+                  it(pc.rgba(grayVal,grayVal,grayVal,255))
+                end
+              end
+            end
+          end
+
+          local bufferImage = Image(gc.width, gc.height)
           if scale % 1 ~= 0 and scale < 2 then
             -- Rasterize at a fixed origin before translating, so panning does not
             -- change the sampling phase used to scale the sprite.
             local scaledImage = Image(displayBounds.w, displayBounds.h)
             scaledImage.context:drawImage(displayImage, displayImage.bounds, scaledImage.bounds)
-
-            gc:drawImage(scaledImage, scaledImage.bounds, displayBounds)
+            bufferImage.context:drawImage(scaledImage, scaledImage.bounds, displayBounds)
           else
-            gc:drawImage(displayImage, displayImage.bounds, displayBounds)
+            bufferImage.context:drawImage(displayImage, displayImage.bounds, displayBounds)
           end
+          if not preProcess and self.filterActive and self.filter == Filter.Grayscale then
+            for it in bufferImage:pixels() do
+
+              local rgbVal = it()
+              local pc = app.pixelColor
+              if pc.rgbaA(rgbVal) ~= 0 then
+                local grayVal
+                -- Rec. 601
+                grayVal = math.floor(0.299 * pc.rgbaR(rgbVal) + 0.587 * pc.rgbaG(rgbVal) + 0.114 * pc.rgbaB(rgbVal))
+                -- Rec. 709
+                -- grayVal = math.floor(0.2126 * pc.rgbaR(rgbVal) + 0.7152 * pc.rgbaG(rgbVal) + 0.0722 * pc.rgbaB(rgbVal))
+                it(pc.rgba(grayVal,grayVal,grayVal,255))
+              end
+            end
+          end
+          gc:drawImage(bufferImage, 0, 0)
 
           -- draw border around image
           gc.color = themeColor.editor_sprite_border
@@ -687,7 +864,7 @@ function Preview:createDialog()
   local customButtons
   customButtons = CustomWidgets:buttonGroup{
     -- expand dialog
-    {id="expand_button",
+    {id="expand_button", tooltip="Toggle expand",
       icon="pal_options", iconWidth=4, iconHeight=5,
       width=13, height=15, recolor=true, togglable=true,
       onclick=function()
@@ -695,14 +872,6 @@ function Preview:createDialog()
         local bounds = dlg.bounds
         local preSizeHint = dlg.sizeHint
         local widgets = {
-          "zoom_slider",
-          "area_combo",
-          "tile_combo",
-          "anim_combo",
-          "anim_slider",
-          "ignore_check",
-          "follow_check",
-          "speed_combo",
           "tabs",
         }
         for _, widget in ipairs(widgets) do
@@ -714,21 +883,33 @@ function Preview:createDialog()
         )
       end
     },
-    -- pin
-    {id="pin_button",
-      icon="timeline_open_padlock_normal", iconWidth=12, iconHeight=12,
-      iconSel="timeline_closed_padlock_active",
-      selected=self.pinned,
+    -- pin (moved under cut for simplicity)
+    -- {id="pin_button",
+    --   icon="unpinned", iconWidth=8, iconHeight=8,
+    --   iconSel="pinned", iconSelWidth=6,
+    --   recolor=true,
+    --   selected=self.pinned,
+    --   width=13, height=15, togglable=true, onclick=function ()
+    --     self.pinned = customButtons.lookup["pin_button"].selected
+    --     -- case where window should disappear when unpinned
+    --     if not self.pinned then
+    --       self:updateVisibility()
+    --     end
+    --   end
+    -- },
+    -- filter
+    {id="filter_button", tooltip="Toggle filter",
+      icon="timeline_onionskin", iconWidth=12, iconHeight=12,
+      iconSel="timeline_onionskin_active",
+      recolor=false,
+      selected=self.filterActive,
       width=13, height=15, togglable=true, onclick=function ()
-        self.pinned = customButtons.lookup["pin_button"].selected
-        -- case where window should disappear when unpinned
-        if not self.pinned then
-          self:updateVisibility()
-        end
+        self.filterActive = customButtons.lookup["filter_button"].selected
+        self:repaint()
       end
     },
     -- isolate layer
-    {id="isolate_button",
+    {id="isolate_button", tooltip="Toggle isolate layer",
       icon="timeline_open_eye_normal", iconWidth=12, iconHeight=13,
       iconSel="timeline_closed_eye_active",
       selected=self.isolateLayer,
@@ -738,7 +919,7 @@ function Preview:createDialog()
       end
     },
     -- play animation
-    {id="play_button",
+    {id="play_button", tooltip="Toggle play animation",
       icon="ani_play", iconWidth=4, iconHeight=6,
       iconSel="ani_stop", iconSelWidth=4, iconSelHeight=6,
       recolor=true, width=13, height=15, togglable=true, rightAlign=true,
@@ -754,12 +935,23 @@ function Preview:createDialog()
       end
     },
     -- center
-    {id="center_button",
+    {id="center_button", tooltip="Center view",
       icon="window_center_icon", iconWidth=4, iconHeight=5,
       width=13, height=15, rightAlign=true,
+      recolor=true,
       selected=false,
       onclick=function ()
         self.spritePos = subPoints(mulVect(self.lastCanvasSize, 0.5), mulVect(app.editor.scroll, self:scale()))
+      end
+    },
+    -- flip
+    {id="mirror_button", tooltip="Mirror view",
+      icon="horizontal_symmetry", iconWidth=11, iconHeight=13,
+      recolor=false, width=13, height=15, togglable=true, rightAlign=false,
+      selected=self.mirrored,
+      onclick=function ()
+        self.mirrored = customButtons.lookup["mirror_button"].selected
+        self:repaint()
       end
     },
   }
@@ -769,22 +961,8 @@ function Preview:createDialog()
     widgets=customButtons.widgets,
   }
   dlg
-  :tab{ id="zoom_tab", text="Zoom"}
-  :slider{ id="zoom_slider",
-    visible=false,
-    focus=false,
-    min=1-defaultZoomLevel,
-    max=scalesSize-defaultZoomLevel,
-    value=self.zoomLevel-defaultZoomLevel,
-    onchange=function ()
-      self:zoomTo(dlg.data["zoom_slider"] + defaultZoomLevel)
-      self:repaint()
-    end,
-    onrelease=function () end
-  }
   :tab{ id="area_tab", text="Canvas"}
   :combobox{ id="area_combo",
-    visible=false,
     label="Area",
     option="Canvas",
     options=getKeys(areas),
@@ -794,27 +972,44 @@ function Preview:createDialog()
     end
   }
   :combobox{ id="tile_combo",
-    visible=false,
     label="Tiled",
-    option="None",
-    options={"None", "Tiled in Both Axes", "Tiled in X Axis", "Tiled in Y Axis"},
+    option=self.tileMode,
+    options=tileOptions,
     onchange=function()
-      local mode = dlg.data["tile_combo"]
-      if mode == "Tiled in Both Axes" then
-        self.tileMode = Tiled.Both
-      elseif mode == "Tiled in X Axis" then
-        self.tileMode = Tiled.X
-      elseif mode == "Tiled in Y Axis" then
-        self.tileMode = Tiled.Y
-      else
-        self.tileMode = Tiled.None
-      end
+      self.tileMode = dlg.data["tile_combo"]
       self:repaint()
     end
   }
+  :combobox{ id="filter_combo",
+    label="Filter",
+    option=self.filter,
+    options=filterOptions,
+    onchange=function()
+      self.filter = dlg.data["filter_combo"]
+      self:repaint()
+    end
+  }
+  :color{ id="silhouette_picker",
+    label="Silhouette",
+    color=self.silhouette,
+    onchange=function ()
+      self.silhouette = dlg.data["silhouette_picker"]
+      self:repaint()
+    end
+  }
+  :check{ id="follow_layer_check",
+    text="Follow Layer",
+    selected=self.followLayer,
+    focus=false,
+    onclick=function()
+      self.followLayer = dlg.data["follow_layer_check"]
+      self.layer = app.layer
+      self:repaint()
+    end
+  }
+  :newrow()
   :tab{ id="anim_tab", text="Animation"}
   :check{ id="ignore_check",
-    visible=false,
     text="Ignore Subtags",
     selected=self.ignoreTags,
     focus=false,
@@ -823,7 +1018,6 @@ function Preview:createDialog()
     end
   }
   :check{ id="follow_check",
-    visible=false,
     text="Follow Editor",
     selected=self.followEditor,
     focus=false,
@@ -831,8 +1025,8 @@ function Preview:createDialog()
       self.followEditor = dlg.data["follow_check"]
     end
   }
+  :newrow()
   :slider{ id="anim_slider",
-    visible=false,
     label="Frame",
     focus=false,
     min=1,
@@ -848,7 +1042,6 @@ function Preview:createDialog()
     onrelease=function () end
   }
   :combobox{ id="anim_combo",
-    visible=false,
     label="Scope",
     option=allFrames,
     options={allFrames},
@@ -862,7 +1055,6 @@ function Preview:createDialog()
     end
   }
   :combobox{ id="speed_combo",
-    visible=false,
     label="Speed",
     option="1x",
     options={
@@ -875,6 +1067,31 @@ function Preview:createDialog()
     },
     onchange=function()
       self.speed = speedOptions[dlg.data["speed_combo"]]
+    end
+  }
+  :tab{ id="misc_tab", text="Misc."}
+  :slider{ id="zoom_slider",
+    label="Zoom",
+    focus=false,
+    min=1-defaultZoomLevel,
+    max=scalesSize-defaultZoomLevel,
+    value=self.zoomLevel-defaultZoomLevel,
+    onchange=function ()
+      self:zoomTo(dlg.data["zoom_slider"] + defaultZoomLevel)
+      self:repaint()
+    end,
+    onrelease=function () end
+  }
+  :check{ id="pin_check",
+    text="Pin preview",
+    selected=self.pinned,
+    focus=false,
+    onclick=function()
+      self.pinned = dlg.data["pin_check"]
+      -- case where window should disappear when unpinned
+      if not self.pinned then
+        self:updateVisibility()
+      end
     end
   }
   :endtabs{ id="tabs",
@@ -914,8 +1131,9 @@ local function CurrentPreviewOpen()
   return false
 end
 
+--- @param plugin Plugin
 --- @return nil
-local function ToggleCurrentPreview()
+local function ToggleCurrentPreview(plugin)
   local sprite = app.sprite
   if sprite == nil then
     app.alert("No active sprite")
@@ -933,29 +1151,45 @@ local function ToggleCurrentPreview()
     return
   end
   -- create preview if none exists
-  preview = Preview:new()
+  preview = Preview:new(plugin.preferences.config[spriteKey(sprite)])
   previews[sprite["id"]] = preview
   preview_count = preview_count + 1
-
   preview:show()
 end
 
+
+local quitPreview
 local siteListener
 ---@return nil
-local function appSiteChanged()
+local function appSiteChanged(plugin)
+  local spriteSet = {}
+  for _,s in ipairs(app.sprites) do
+    spriteSet[s["id"]] = true
+  end
   for _, preview in pairs(previews) do
-    if preview then
+    assert(preview)
+    if spriteSet[preview.sprite["id"]] then
       preview:updateVisibility()
+      preview:updateLayer()
       preview:updateFrame()
       preview:repaint()
+    else
+      print("saved config")
+      quitPreview(plugin, preview)
     end
+    
   end
 end
 
+local quit
+
 function init(plugin)
   if not app.isUIAvailable then return end
+  if plugin.preferences.config == nil then
+    plugin.preferences.config = {}
+  end
 
-  siteListener = app.events:on('sitechange', appSiteChanged)
+  siteListener = app.events:on('sitechange', function() appSiteChanged(plugin) end)
 
   plugin:newMenuGroup{
     id="preview_plus_group",
@@ -967,7 +1201,7 @@ function init(plugin)
     id="preview_plus",
     title="Preview Plus",
     group="preview_plus_group",
-    onclick=function() ToggleCurrentPreview() end,
+    onclick=function() ToggleCurrentPreview(plugin) end,
     onenabled=function() return app.sprite ~= nil end,
     onchecked=function() return CurrentPreviewOpen() end
   }
@@ -979,20 +1213,54 @@ function init(plugin)
     id="quit_preview_plus",
     title="Quit Preview Plus",
     group="preview_plus_group",
-    onclick=function() exit() end,
+    onclick=function() quit(plugin) end,
     onenabled=function() return preview_count > 0 end
   }
 end
 
-function exit(plugin)
+---@param plugin any
+---@param preview Preview
+quitPreview = function (plugin, preview)
+  -- save preferences
+  local key = spriteKey(preview.sprite)
+  if plugin and key then
+    plugin.preferences.config[key] = {
+      pinned = preview.pinned,
+      spritePos = {x=preview.spritePos.x,y=preview.spritePos.y},
+      zoomLevel = preview.zoomLevel,
+      lastCanvasSize = {x=preview.lastCanvasSize.x,y=preview.lastCanvasSize.y},
+      --area = {x=preview.area.x, y=preview.area.y, width=preview.area.width, height=preview.area.height},
+      isolateLayer = preview.isolateLayer,
+      tileMode = preview.tileMode,
+      ignoreTags = preview.ignoreTags,
+      followEditor = preview.followEditor,
+      layerUuid = tostring(preview.layer.uuid),
+      followLayer = preview.followLayer,
+      speed = preview.speed,
+      mirrored = preview.mirrored,
+      filter = preview.filter,
+      silhouette = preview.silhouette.rgbaPixel,
+      filterActive = preview.filterActive,
+    }
+  end
+
+  preview:stopPlayback()
+  preview:disconnect()
+  if preview.dialog then
+    preview.dialog:close()
+  end
+  previews[preview.sprite["id"]] = nil
+  assert(previews[preview.sprite["id"]] == nil)
+  preview_count = preview_count - 1
+end
+
+quit = function (plugin)
   app.events:off(siteListener)
   for _, preview in pairs(previews) do
-    preview:stopPlayback()
-    preview:disconnect()
-    if preview.dialog then
-      preview.dialog:close()
-    end
+    quitPreview(plugin, preview)
   end
-  previews = {}
-  preview_count = 0
+end
+
+function exit(plugin)
+  quit(plugin)
 end

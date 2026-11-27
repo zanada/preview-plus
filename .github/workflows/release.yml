@@ -35,3 +35,4 @@ jobs:
         artifactErrorsFailBuild: true
         allowUpdates: true
         replacesArtifacts: true
+        draft: true

@@ -24,6 +24,11 @@ function Playback:startPlayback()
   local activeTags = {} ---@type PlayTag[]
   local seenTags = {}   ---@type Tag[]
 
+  ---@param f Frame
+  local function setFrame(f)
+    self.frame = f
+  end
+
   --- initial direction of tag
   ---@param t Tag
   ---@return integer (-1,1)
@@ -134,10 +139,15 @@ function Playback:startPlayback()
   end
 
   local function getParentForward()
-    if #activeTags == 0 then
-      return tForward
+    -- account for deleted tags
+    while true do
+      if #activeTags == 0 then break end
+      local ok, f = pcall(function() return activeTags[#activeTags].forward end)
+      if ok then return f end
+      table.remove(activeTags)
     end
-    return activeTags[#activeTags].forward
+    
+    return tForward
   end
 
   ---@param playTag PlayTag
@@ -237,7 +247,7 @@ function Playback:startPlayback()
       if currentTag == nil or tagContainsTag(currentTag.tag, t) then
         addTag(t, false, forward)
         if not firstTime then
-          self.frame = getParentForward() < 0 and t.toFrame or t.fromFrame
+          setFrame(getParentForward() < 0 and t.toFrame or t.fromFrame)
           if (initialFrame ~= self.frame) then
             handleEnterFrame(step, false)
             return
@@ -275,7 +285,7 @@ function Playback:startPlayback()
       assert(oldTag)
       if oldTag and (oldTag.repeats == nil or oldTag.repeats > 1) then
         if oldTag.repeats then oldTag.repeats = oldTag.repeats - 1 end
-        self.frame = firstTagFrame(oldTag)
+        setFrame(firstTagFrame(oldTag))
 
         -- tag has only 1 frame, then don't count as move
         return oldTag.tag.frames > 1
@@ -323,11 +333,11 @@ function Playback:startPlayback()
             if #activeTags == 0 and oldTag.tag.aniDir == AniDir.PING_PONG_REVERSE and
                oldTag.tag.fromFrame.frameNumber == 1 and 
                oldTag.tag.toFrame.frameNumber == #self.sprite.frames then
-              self.frame = self.sprite.frames[#self.sprite.frames]
+              setFrame(self.sprite.frames[#self.sprite.frames])
               handleEnterFrame(step, false)
               if #activeTags > 1 then
                 activeTags[#activeTags].forward = -activeTags[#activeTags].forward
-                self.frame = firstTagFrame(activeTags[#activeTags])
+                setFrame(firstTagFrame(activeTags[#activeTags]))
               end
               return false
             end
@@ -355,7 +365,7 @@ function Playback:startPlayback()
         end
 
         if not continue then
-          self.frame = self.sprite.frames[newFrameNum]
+          setFrame(self.sprite.frames[newFrameNum])
           local newTag = activeTags[#activeTags]
           if newTag then
             if tagContainsFrame(newTag.tag, self.frame) then
@@ -412,7 +422,7 @@ function Playback:startPlayback()
       frameNumber = scopeTo
     end
 
-    self.frame = self.sprite.frames[frameNumber]
+    setFrame(self.sprite.frames[frameNumber])
     return true
   end
 
@@ -436,7 +446,7 @@ function Playback:startPlayback()
         if handleScopeCrossing(previousFrameNumber) then return false end
         return move
       elseif step < 0 and self.frame == firstTagFrame(curTag) then
-        self.frame = lastTagFrame(curTag)
+        setFrame(lastTagFrame(curTag))
         return false
       end
     end
@@ -445,10 +455,10 @@ function Playback:startPlayback()
     if self.scopeTag then
       if (self.scopeTag.aniDir == AniDir.FORWARD or self.scopeTag.aniDir == AniDir.REVERSE) then
         if (tForward > 0 and self.frame == self.scopeTag.toFrame) then
-          self.frame = self.scopeTag.fromFrame
+          setFrame(self.scopeTag.fromFrame)
           return false
         elseif (tForward < 0 and self.frame == self.scopeTag.fromFrame) then
-          self.frame = self.scopeTag.toFrame
+          setFrame(self.scopeTag.toFrame)
           return false
         end
       elseif (self.scopeTag.aniDir == AniDir.PING_PONG or self.scopeTag.aniDir == AniDir.PING_PONG_REVERSE) and
@@ -458,14 +468,14 @@ function Playback:startPlayback()
           math.min(self.frame.frameNumber + tForward, self.scopeTag.toFrame.frameNumber),
           self.scopeTag.fromFrame.frameNumber
         )
-        self.frame = self.sprite.frames[frameNum]
+        setFrame(self.sprite.frames[frameNum])
         return false
       end
     elseif tForward > 0 and self.frame.frameNumber == #self.sprite.frames then
-      self.frame = self.sprite.frames[1]
+      setFrame(self.sprite.frames[1])
       return false
     elseif tForward < 0 and self.frame.frameNumber == 1 then
-      self.frame = self.sprite.frames[#self.sprite.frames]
+      setFrame(self.sprite.frames[#self.sprite.frames])
       return false
     end
 
@@ -474,7 +484,7 @@ function Playback:startPlayback()
 
   ---@param step integer
   local function handleMoveFrame(step)
-    self.frame = self.sprite.frames[self.frame.frameNumber + getParentForward()]
+    setFrame(self.sprite.frames[self.frame.frameNumber + getParentForward()])
   end
 
   ---@param step integer
@@ -493,7 +503,7 @@ function Playback:startPlayback()
   if self.scopeTag then
     tForward = tForward * getTagForward(self.scopeTag)
     if not tagContainsFrame(self.scopeTag, self.frame) then
-      self.frame = tForward > 0 and self.scopeTag.fromFrame or self.scopeTag.toFrame
+      setFrame(tForward > 0 and self.scopeTag.fromFrame or self.scopeTag.toFrame)
     end
   end
   if debug then print("tForward: "..tostring(tForward)) end

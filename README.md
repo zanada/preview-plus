@@ -4,6 +4,7 @@
 
 <h1 align="center">Preview Plus for Aseprite</h1>
 
+
 <p align="center">An <a href="https://aseprite.org/">Aseprite</a> plugin that adds a preview window with extra functionality</p>
 
 <p align="center">
@@ -34,7 +35,31 @@ width=500
 alt="Isolate Example">
 </p>
 
-* **Pin** - Pin to see the preview window for a sprite no matter what tab you are on
+* **Filters** - Set the type in the dropdown and toggle with the filter button
+  * **Grayscale** - Preview just the grayscale values
+
+  <p align="center">
+  <img src="docs/example7.png"
+  width=400 
+  alt="Grayscale example">
+  </p>
+
+  * **Silhouette** - Show the silhouette of the selected layer or group of layers. You can also change the color it uses
+
+  <p align="center">
+  <img src="docs/example6.png"
+  width=400 
+  alt="Silhouette example">
+  </p>
+
+* **Follow Layer** - Choose to display a different layer or group than the editor. Useful for working while showing a clean view without guidelines or viewing overall silhouette
+
+<p align="center">
+<img src="docs/example5.png"
+width=500 
+alt="Playback example">
+</p>
+
 * **Animation Playback** - By default, the window behaves just like the Aseprite version
   * **Frame Slider** - Show a different frame that what is selected in editor
   * **Scope tag** - Set a scope tag for just the portion of animation you want to play
@@ -44,6 +69,8 @@ alt="Isolate Example">
 width=500 
 alt="Playback example">
 </p>
+
+* **Pin** - Pin to see the preview window for a sprite no matter what tab you are on
 
 
 ## Usage

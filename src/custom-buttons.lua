@@ -10,6 +10,7 @@ local pressedWidget = nil
 ---@class IconButton
 local IconButton = {
   id = nil,
+  tooltip = nil,
   width = 16,
   height = 16,
   bounds = Rectangle(0, 0, 16, 16),
@@ -48,6 +49,7 @@ local IconButton = {
   rightAlign=false,
   onclick = function() print("Unassigned") end,
   onenabled = function() return true end,
+  text=nil
 }
 IconButton.__index = IconButton
 
@@ -176,6 +178,9 @@ function CustomWidgets:buttonRow(options)
       local isOverWidget = false
       for _,widget in pairs(widgets) do
         if widget.bounds:contains(Point(ev.x,ev.y)) and widget.onenabled() then
+          if mouseOverWidget ~= widget and widget.tooltip then
+            app.tip(widget.tooltip)
+          end
           mouseOverWidget = widget
           isOverWidget = true
           break
