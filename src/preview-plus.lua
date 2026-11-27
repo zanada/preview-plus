@@ -990,7 +990,7 @@ function Preview:createDialog()
     end
   }
   :color{ id="silhouette_picker",
-    label="Silhouette Color",
+    label="Silhouette",
     color=self.silhouette,
     onchange=function ()
       self.silhouette = dlg.data["silhouette_picker"]
